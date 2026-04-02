@@ -1,0 +1,22 @@
+summary: Complete FDO end-to-end protocol testing
+description: |
+    Comprehensive FDO testing covering:
+    - Certificate infrastructure setup
+    - Multi-server orchestration (manufacturer, rendezvous, owner)
+    - Device initialization and onboarding
+    - ServiceInfo module testing
+    - Protocol validation
+
+test: ../../rpm/test-onboarding.sh
+
+framework: shell
+
+duration: 30m
+
+tag:
+  - fdo
+  - e2e
+  - protocol
+  - onboarding
+  - rpm
+  - server
