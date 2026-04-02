@@ -1,0 +1,48 @@
+summary: Coordinated E2E testing for server@PR + client@PR
+description: |
+    Tests server and client built from source for coordinated PR testing.
+    Clones both repos at specified refs and builds from source.
+    Uses SERVER_LOCAL_PATH and CLIENT_LOCAL_PATH environment variables
+    to specify paths to server and client source code.
+
+    2-way testing (server@PR + client@PR): pass SERVER_REF and CLIENT_REF.
+    3-way testing (+ ci@PR): controlled at the workflow level — Testing Farm
+    is invoked with git_ref pointing to the go-fdo-ci PR sha, so this plan
+    and all test scripts are taken from that PR automatically. No change to
+    this plan is needed for 3-way support.
+
+discover:
+    how: fmf
+    filter: tag:coordinated
+
+provision:
+    how: virtual
+    memory: 4096
+    disk: 30
+
+prepare:
+  - how: shell
+    script: |
+      mkdir -p /var/tmp/fdo
+      git clone https://github.com/fido-device-onboard/go-fdo-server /var/tmp/fdo/server
+      git -C /var/tmp/fdo/server checkout ${SERVER_REF:-main}
+      git clone https://github.com/fido-device-onboard/go-fdo-client /var/tmp/fdo/client
+      git -C /var/tmp/fdo/client checkout ${CLIENT_REF:-main}
+
+  - how: install
+    package:
+      - golang
+      - make
+      - openssl
+      - curl
+      - git
+      - jq
+      - npm
+      - sqlite
+
+execute:
+    how: tmt
+
+environment:
+    SERVER_LOCAL_PATH: /var/tmp/fdo/server
+    CLIENT_LOCAL_PATH: /var/tmp/fdo/client
