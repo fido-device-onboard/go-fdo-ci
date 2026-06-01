@@ -1,0 +1,171 @@
+name: E2E Testing
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      server-ref:
+        description: "go-fdo-server ref (branch, tag, or refs/pull/N/head)"
+        default: "main"
+      client-ref:
+        description: "go-fdo-client ref (branch, tag, or refs/pull/N/head)"
+        default: "main"
+
+jobs:
+  test-native:
+    name: "Native: ${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: test-onboarding
+            name: Test FIDO device onboarding
+          - test: test-onboarding-config
+            name: Test FIDO device onboarding using a configuration file
+          - test: test-onboarding-v2
+            name: Test FIDO device onboarding (V2 API)
+          - test: test-ov-verification
+            name: Test Ownership Voucher verification
+          - test: test-resale
+            name: Test FIDO resale protocol
+          - test: test-fsim-wget
+            name: Test FSIM fdo.wget
+          - test: test-fsim-upload
+            name: Test FSIM fdo.upload
+          - test: test-fsim-download
+            name: Test FSIM fdo.download
+          - test: test-fsim-command
+            name: Test FSIM fdo.command
+          - test: test-fsim-config
+            name: Test a sequence of FSIM operations using a configuration file
+          - test: test-device-ca-api
+            name: Test Device CA API
+          - test: test-device-ca-rendezvous-trust
+            name: Test Device CA rendezvous trust verification
+          - test: test-rv-bypass
+            name: Test RV bypass
+          - test: test-rv-bypass-v2
+            name: Test RV bypass (V2 API)
+          - test: test-rvinfo-apis-v2
+            name: Test RVInfo API Lifecycle (V2 API)
+    env:
+      SERVER_LOCAL_PATH: ${{ github.workspace }}/server
+      CLIENT_LOCAL_PATH: ${{ github.workspace }}/client
+    steps:
+      - name: Install golang
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26"
+
+      - name: Check out go-fdo-ci
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Check out go-fdo-server
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: fido-device-onboard/go-fdo-server
+          ref: ${{ inputs.server-ref || 'main' }}
+          path: server
+
+      - name: Check out go-fdo-client
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: fido-device-onboard/go-fdo-client
+          ref: ${{ inputs.client-ref || 'main' }}
+          path: client
+
+      - name: ${{ matrix.name }}
+        run: |
+          source test/ci/${{ matrix.test }}.sh
+          run_test
+
+      - name: Get Manufacturer, Rendezvous and Owner server logs
+        if: always()
+        run: |
+          source test/ci/${{ matrix.test }}.sh
+          get_logs
+
+      - name: Cleanup the environment
+        if: always()
+        run: |
+          source test/ci/${{ matrix.test }}.sh
+          cleanup
+
+  test-container:
+    name: "Container: ${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: test-onboarding
+            name: Test FIDO device onboarding
+          - test: test-onboarding-config
+            name: Test FIDO device onboarding using a configuration file
+          - test: test-onboarding-postgres
+            name: Test FIDO device onboarding (PostgreSQL)
+          - test: test-ov-verification
+            name: Test Ownership Voucher verification
+          - test: test-resale
+            name: Test FIDO resale protocol
+          - test: test-fsim-download
+            name: Test FSIM fdo.download
+          - test: test-fsim-upload
+            name: Test FSIM fdo.upload
+          - test: test-fsim-wget
+            name: Test FSIM fdo.wget
+          - test: test-device-ca-api
+            name: Test Device CA API
+          - test: test-device-ca-rendezvous-trust
+            name: Test Device CA rendezvous trust verification
+          - test: test-health-api-postgres
+            name: Test Health API (PostgreSQL)
+    env:
+      SERVER_LOCAL_PATH: ${{ github.workspace }}/server
+      CLIENT_LOCAL_PATH: ${{ github.workspace }}/client
+      COMPOSE_DIR: server/deployments/compose
+    steps:
+      - name: Install golang
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26"
+
+      - name: Check out go-fdo-ci
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Check out go-fdo-server
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: fido-device-onboard/go-fdo-server
+          ref: ${{ inputs.server-ref || 'main' }}
+          path: server
+
+      - name: Check out go-fdo-client
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: fido-device-onboard/go-fdo-client
+          ref: ${{ inputs.client-ref || 'main' }}
+          path: client
+
+      - name: ${{ matrix.name }}
+        run: |
+          source test/container/${{ matrix.test }}.sh
+          run_test
+
+      - name: Get Manufacturer, Rendezvous and Owner server logs
+        if: always()
+        run: |
+          source test/container/${{ matrix.test }}.sh
+          get_logs
+
+      - name: Cleanup the environment
+        if: always()
+        run: |
+          source test/container/${{ matrix.test }}.sh
+          cleanup
