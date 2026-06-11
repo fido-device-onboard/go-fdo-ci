@@ -5,11 +5,12 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../scripts/cert-utils.sh"
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../scripts/server-api-utils.sh"
 
-base_dir="${PWD}/test/workdir"
+base_dir="${PWD}/workdir"
 bin_dir="${base_dir}/bin"
 pid_dir="${base_dir}/run"
 logs_dir="${base_dir}/logs"
 certs_dir="${base_dir}/certs"
+db_dir="${base_dir}/db"
 credentials_dir="${base_dir}/device-credentials"
 
 device_ca_key="${certs_dir}/device_ca.key"
@@ -37,6 +38,8 @@ manufacturer_url="${manufacturer_protocol}://${manufacturer_service}"
 #shellcheck disable=SC2034
 # needed for 'wait_for_services_ready' do not remove
 manufacturer_health_url="${manufacturer_url}/health"
+manufacturer_db_type="sqlite"
+manufacturer_db_dsn="file:${db_dir}/${manufacturer_service_name}.db"
 
 rendezvous_service_name="rendezvous"
 rendezvous_dns=rendezvous
@@ -53,9 +56,8 @@ rendezvous_url="${rendezvous_protocol}://${rendezvous_service}"
 #shellcheck disable=SC2034
 # needed for 'wait_for_services_ready' do not remove
 rendezvous_health_url="${rendezvous_url}/health"
-
-# Default RV info JSON for standard tests (can be overridden per test)
-rv_info="[{\"dns\": \"${rendezvous_dns}\", \"device_port\": \"${rendezvous_port}\", \"protocol\": \"${rendezvous_protocol}\", \"ip\": \"${rendezvous_ip}\", \"owner_port\": \"${rendezvous_port}\"}]"
+rendezvous_db_type="sqlite"
+rendezvous_db_dsn="file:${db_dir}/${rendezvous_service_name}.db"
 
 owner_service_name="owner"
 owner_dns=owner
@@ -81,6 +83,8 @@ owner_url="${owner_protocol}://${owner_service}"
 owner_health_url="${owner_url}/health"
 #shellcheck disable=SC2034
 owner_ov="${base_dir}/owner.ov"
+owner_db_type="sqlite"
+owner_db_dsn="file:${db_dir}/${owner_service_name}.db"
 
 # HTTPS transport cert paths
 manufacturer_https_key="${certs_dir}/manufacturer-http.key"
@@ -97,7 +101,7 @@ client_timeout="300s"
 to0_wait_seconds=10
 
 declare -a services=("${manufacturer_service_name}" "${rendezvous_service_name}" "${owner_service_name}")
-declare -a directories=("${base_dir}" "${certs_dir}" "${credentials_dir}" "${logs_dir}")
+declare -a directories=("${base_dir}" "${certs_dir}" "${credentials_dir}" "${logs_dir}" "${db_dir}")
 
 # Colors for output
 RED='\033[0;31m'
@@ -313,13 +317,14 @@ run_fido_device_onboard() {
 run_go_fdo_server() {
   local role=$1
   local address_port=$2
-  local name=$3
-  local pid_file=$4
-  local log=$5
-  shift 5
+  local db_type=$3
+  local db_dsn=$4
+  local pid_file=$5
+  local log=$6
+  shift 6
   mkdir -p "$(dirname "${log}")"
   mkdir -p "$(dirname "${pid_file}")"
-  nohup "${bin_dir}/go-fdo-server" "${role}" "${address_port}" --db-type sqlite --db-dsn "file:${base_dir}/${name}.db" --log-level=debug "${@}" &>"${log}" &
+  nohup "${bin_dir}/go-fdo-server" "${role}" "${address_port}" --db-type "${db_type}" --db-dsn "${db_dsn}" --log-level=debug "${@}" &>"${log}" &
   echo -n $! >"${pid_file}"
 }
 
@@ -328,7 +333,7 @@ start_service_manufacturer() {
   if [ "${manufacturer_protocol}" = "https" ]; then
     extra_opts+=(--http-cert "${manufacturer_https_crt}" --http-key "${manufacturer_https_key}")
   fi
-  run_go_fdo_server manufacturing ${manufacturer_service} manufacturer ${manufacturer_pid_file} ${manufacturer_log} \
+  run_go_fdo_server manufacturing "${manufacturer_service}" "${manufacturer_db_type}" "${manufacturer_db_dsn}" "${manufacturer_pid_file}" "${manufacturer_log}" \
     --manufacturing-key="${manufacturer_key}" \
     --owner-cert="${owner_crt}" \
     --device-ca-cert="${device_ca_crt}" \
@@ -341,7 +346,7 @@ start_service_rendezvous() {
   if [ "${rendezvous_protocol}" = "https" ]; then
     extra_opts+=(--http-cert "${rendezvous_https_crt}" --http-key "${rendezvous_https_key}")
   fi
-  run_go_fdo_server rendezvous ${rendezvous_service} rendezvous ${rendezvous_pid_file} ${rendezvous_log} \
+  run_go_fdo_server rendezvous "${rendezvous_service}" "${rendezvous_db_type}" "${rendezvous_db_dsn}" "${rendezvous_pid_file}" "${rendezvous_log}" \
     "${extra_opts[@]}"
 }
 
@@ -354,7 +359,7 @@ start_service_owner() {
     # skip verify of rendezvous cert (self signed)
     extra_opts+=(--to0-insecure-tls)
   fi
-  run_go_fdo_server owner ${owner_service} owner ${owner_pid_file} ${owner_log} \
+  run_go_fdo_server owner "${owner_service}" "${owner_db_type}" "${owner_db_dsn}" "${owner_pid_file}" "${owner_log}" \
     --owner-key="${owner_key}" \
     --device-ca-cert="${device_ca_crt}" \
     "${extra_opts[@]}"

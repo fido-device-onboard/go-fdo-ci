@@ -25,6 +25,9 @@ new_owner_url="${new_owner_protocol}://${new_owner_service}"
 # needed for 'wait_for_services_ready' do not remove
 #shellcheck disable=SC2034
 new_owner_health_url="${new_owner_url}/health"
+new_owner_db_type="sqlite"
+new_owner_db_dsn="file:${db_dir}/${new_owner_service_name}.db"
+
 # The file where the new owner voucher will be saved after the resale protocol has been run
 new_owner_ov="${base_dir}/new_owner.ov"
 
@@ -38,7 +41,7 @@ start_service_new_owner() {
   if [ "${new_owner_protocol}" = "https" ]; then
     extra_opts+=(--http-cert "${new_owner_https_crt}" --http-key "${new_owner_https_key}" --to0-insecure-tls)
   fi
-  run_go_fdo_server owner ${new_owner_service} new_owner ${new_owner_pid_file} ${new_owner_log} \
+  run_go_fdo_server owner "${new_owner_service}" "${new_owner_db_type}" "${new_owner_db_dsn}" "${new_owner_pid_file}" "${new_owner_log}" \
     --owner-key="${new_owner_key}" \
     --device-ca-cert="${device_ca_crt}"
   "${extra_opts[@]}"

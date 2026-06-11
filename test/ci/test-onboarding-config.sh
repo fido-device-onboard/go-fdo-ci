@@ -16,8 +16,8 @@ configure_service_manufacturer() {
 log:
   level: "debug"
 db:
-  type: "sqlite"
-  dsn: "file:${base_dir}/manufacturer.db"
+  type: "${manufacturer_db_type}"
+  dsn: "${manufacturer_db_dsn}"
 http:
   ip: "${manufacturer_dns}"
   port: ${manufacturer_port}
@@ -36,8 +36,8 @@ configure_service_rendezvous() {
 log:
   level: "debug"
 db:
-  type: "sqlite"
-  dsn: "file:${base_dir}/rendezvous.db"
+  type: "${rendezvous_db_type}"
+  dsn: "${rendezvous_db_dsn}"
 http:
   ip: "${rendezvous_dns}"
   port: ${rendezvous_port}
@@ -49,8 +49,8 @@ configure_service_owner() {
 log:
   level: "debug"
 db:
-  type: "sqlite"
-  dsn: "file:${base_dir}/owner.db"
+  type: "${owner_db_type}"
+  dsn: "${owner_db_dsn}"
 http:
   ip: "${owner_dns}"
   port: ${owner_port}

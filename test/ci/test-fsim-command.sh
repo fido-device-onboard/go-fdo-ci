@@ -17,8 +17,8 @@ configure_service_owner() {
 log:
   level: "debug"
 db:
-  type: "sqlite"
-  dsn: "file:${base_dir}/owner.db"
+  type: "${owner_db_type}"
+  dsn: "${owner_db_dsn}"
 http:
   ip: "${owner_dns}"
   port: ${owner_port}
