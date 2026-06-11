@@ -1,0 +1,97 @@
+networks:
+  fdo:
+    name: fdo
+    driver: bridge
+services:
+  go-fdo-server:
+    container_name: go-fdo-server
+    hostname: go-fdo-server
+    image: go-fdo-server
+    build: ${server_src_dir}
+  manufacturer:
+    container_name: manufacturer
+    hostname: manufacturer
+    image: go-fdo-server
+    environment:
+      TZ: Europe/Madrid
+    user: ${container_user}
+    command:
+      - --db-type=sqlite
+      - --db-dsn=file:${container_working_dir:-/workdir}/db/manufacturer.db
+      - --log-level=debug
+      - manufacturing
+      - 0.0.0.0:8038
+      - --manufacturing-key=${container_working_dir:-/workdir}/certs/manufacturer.key
+      - --owner-cert=${container_working_dir:-/workdir}/certs/owner.crt
+      - --device-ca-cert=${container_working_dir:-/workdir}/certs/device_ca.crt
+      - --device-ca-key=${container_working_dir:-/workdir}/certs/device_ca.key
+    working_dir: ${container_working_dir:-/workdir}
+    volumes:
+      - ${base_dir:-./workdir}:${container_working_dir:-/workdir}:z
+    networks:
+      - fdo
+    ports:
+      - 8038:8038
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--output", "/dev/null", "--fail", "http://manufacturer:8038/health"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+      start_period: 5s
+  rendezvous:
+    container_name: rendezvous
+    hostname: rendezvous
+    image: go-fdo-server
+    environment:
+      TZ: Europe/Madrid
+    user: ${container_user}
+    command:
+      - --db-type=sqlite
+      - --db-dsn=file:${container_working_dir:-/workdir}/db/rendezvous.db
+      - --log-level=debug
+      - rendezvous
+      - 0.0.0.0:8041
+    working_dir: ${container_working_dir:-/workdir}
+    volumes:
+      - ${base_dir:-./workdir}:${container_working_dir:-/workdir}:z
+    networks:
+      - fdo
+    ports:
+      - 8041:8041
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--output", "/dev/null", "--fail", "http://rendezvous:8041/health"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+      start_period: 5s
+  owner:
+    container_name: owner
+    hostname: owner
+    image: go-fdo-server
+    environment:
+      TZ: Europe/Madrid
+    user: ${container_user}
+    command:
+      - --db-type=sqlite
+      - --db-dsn=file:${container_working_dir:-/workdir}/db/owner.db
+      - --log-level=debug
+      - owner
+      - 0.0.0.0:8043
+      - --owner-key=${container_working_dir:-/workdir}/certs/owner.key
+      - --device-ca-cert=${container_working_dir:-/workdir}/certs/device_ca.crt
+    working_dir: ${container_working_dir:-/workdir}
+    volumes:
+      - ${base_dir:-./workdir}:${container_working_dir:-/workdir}:z
+    networks:
+      - fdo
+    ports:
+      - 8043:8043
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--output", "/dev/null", "--fail", "http://owner:8043/health"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+      start_period: 5s

@@ -5,8 +5,7 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../ci/test-fsim-upload.sh"
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/utils.sh"
 
-client_compose_file="${COMPOSE_DIR}/client/fdo-client.yaml"
-servers_compose_file="${COMPOSE_DIR}/server/fdo-onboarding-servers-config.yaml"
+servers_compose_file="${compose_dir}/server/test-onboarding-config.yaml"
 
 # Allow running directly
 [[ "${BASH_SOURCE[0]}" != "$0" ]] || {

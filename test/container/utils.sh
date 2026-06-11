@@ -2,9 +2,9 @@
 
 set -euo pipefail
 
-COMPOSE_DIR="${COMPOSE_DIR:-deployments/compose}"
-client_compose_file="${COMPOSE_DIR}/client/fdo-client.yaml"
-servers_compose_file="${COMPOSE_DIR}/server/fdo-onboarding-servers.yaml"
+compose_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/compose"
+client_compose_file="${compose_dir}/client/client.yaml"
+servers_compose_file="${compose_dir}/server/test-onboarding.yaml"
 
 # Export base_dir explicitly for Docker Compose
 export base_dir

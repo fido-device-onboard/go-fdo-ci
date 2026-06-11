@@ -1,0 +1,4 @@
+include:
+  - path:
+    - test-onboarding-config.yaml
+    - test-fsim-wget-override.yaml

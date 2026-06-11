@@ -1,0 +1,32 @@
+include:
+  - test-onboarding.yaml
+services:
+  new_owner:
+   container_name: new_owner
+   hostname: new_owner
+   image: go-fdo-server
+   environment:
+     TZ: Europe/Madrid
+   user: ${container_user}
+   command:
+     - --db-type=sqlite
+     - --db-dsn=file:${container_working_dir:-/workdir}/db/new_owner.db
+     - --log-level=debug
+     - owner
+     - new_owner:8045
+     - --owner-key=${container_working_dir:-/workdir}/certs/new_owner.key
+     - --device-ca-cert=${container_working_dir:-/workdir}/certs/device_ca.crt
+   working_dir: ${container_working_dir:-/workdir}
+   networks:
+     - fdo
+   ports:
+     - 8045:8045
+   volumes:
+     - ${base_dir:-./workdir}:${container_working_dir:-/workdir}:z
+   restart: unless-stopped
+   healthcheck:
+     test: ["CMD", "curl", "--silent", "--output", "/dev/null", "--fail", "http://new_owner:8045/health"]
+     interval: 5s
+     timeout: 30s
+     retries: 5
+     start_period: 5s
