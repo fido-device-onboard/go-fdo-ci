@@ -21,26 +21,13 @@ export container_user
 container_working_dir="${container_working_dir:-/workdir}"
 export container_working_dir
 
+curl() {
+  docker run --user "${container_user}" --network fdo --volume "${PWD}:${PWD}:z" --rm curlimages/curl "$@"
+}
+
 get_real_ip() {
   local service_name=$1
   docker inspect --format='{{.NetworkSettings.Networks.fdo.IPAddress}}' "${service_name}"
-}
-
-set_hostnames() {
-  for service_name in $(docker compose -f ${servers_compose_file} config --services | grep -v db); do
-    service_dns="$(docker inspect "${service_name}" --format='{{index .NetworkSettings.Networks.fdo.Aliases 0}}')"
-    [ -n "${service_dns}" ] || service_dns="${service_name}"
-    set_hostname "$service_dns" "127.0.0.1"
-  done
-}
-
-unset_hostnames() {
-  log_info "Removing hostnames from '/etc/hosts'"
-  for service_name in $(docker compose -f ${servers_compose_file} config --services "{{.Name}}" | grep -v db); do
-    service_dns="$(docker inspect "${service_name}" --format='{{index .NetworkSettings.Networks.fdo.Aliases 0}}')"
-    [ -n "${service_dns}" ] || service_dns="${service_name}"
-    unset_hostname "$service_dns" "127.0.0.1"
-  done
 }
 
 install_client() {
@@ -86,10 +73,6 @@ start_service() {
 start_services() {
   log_info "Starting services"
   docker compose --file "${servers_compose_file}" up -d
-  # We need to add the hosts IPs after starting the services
-  # so the resolution within the containers is not affected
-  log_info "Adding hostnames to '/etc/hosts'"
-  set_hostnames
 }
 
 stop_service() {
