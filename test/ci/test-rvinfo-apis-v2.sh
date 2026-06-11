@@ -21,14 +21,17 @@ run_test() {
   log_info "Generating service certificates"
   generate_service_certs
 
+  log_info "Set manufacturer hostname: '${manufacturer_ip} ${manufacturer_dns}'"
+  set_hostname "${manufacturer_dns}" "${manufacturer_ip}"
+
   log_info "Configuring manufacturer service"
-  configure_services "${manufacturer_service_name}"
+  configure_service "${manufacturer_service_name}"
 
   log_info "Configure DNS and start manufacturer service"
-  start_services "${manufacturer_service_name}"
+  start_service "${manufacturer_service_name}"
 
   log_info "Wait for manufacturer service to be ready"
-  wait_for_services_ready "${manufacturer_service_name}"
+  wait_for_service_ready "${manufacturer_service_name}"
 
   log_info "=== Testing RVInfo API Lifecycle ==="
 
