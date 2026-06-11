@@ -154,6 +154,7 @@ find_in_log() {
 create_directories() {
   for directory in "${directories[@]}"; do
     mkdir -p "${directory}"
+    log "  ⚙ ${directory}\n"
   done
 }
 
