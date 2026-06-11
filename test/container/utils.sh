@@ -17,8 +17,8 @@ export server_src_dir
 container_user="$(id -u):$(id -g)"
 export container_user
 
-# Container working directory (default to /workdir if not set)
-container_working_dir="${container_working_dir:-/workdir}"
+# Container working directory
+container_working_dir="/workdir"
 export container_working_dir
 
 curl() {
