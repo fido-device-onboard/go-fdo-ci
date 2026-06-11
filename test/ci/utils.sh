@@ -2,8 +2,7 @@
 
 set -euo pipefail
 
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../scripts/cert-utils.sh"
-source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../scripts/server-api-utils.sh"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../utils/certs.sh"
 
 base_dir="${PWD}/workdir"
 bin_dir="${base_dir}/bin"
@@ -482,7 +481,10 @@ set_or_update_rendezvous_info() {
   local rendezvous_info_json=$2
 
   log_info "Checking if 'RendezvousInfo' is configured on manufacturer side (${manufacturer_url})"
-  if [ -z "$(get_rendezvous_info "${manufacturer_url}")" ]; then
+  local current
+  current="$(get_rendezvous_info "${manufacturer_url}" || true)"
+  log_info "Retrieved 'RendezvousInfo': ${current}"
+  if [ -z "${current}" ] || [ "${current}" = "[]" ] || [ "${current}" = "No rvInfo found" ] || [ "${current}" = "null" ]; then
     log_warn "'RendezvousInfo' not found, creating it"
     set_rendezvous_info "${manufacturer_url}" "${rendezvous_info_json}"
   else
@@ -507,7 +509,7 @@ send_manufacturer_ov_to_owner() {
   return ${status}
 }
 
-set_or_update_owner_redirect_info() {
+set_or_update_rvto2addr() {
   local owner_url=$1
   local owner_service_name=$2
   local owner_dns=$3
@@ -516,12 +518,15 @@ set_or_update_owner_redirect_info() {
   local real_owner_ip
   real_owner_ip="$(get_real_ip "${owner_service_name}")"
   log_info "Checking if 'RVTO2Addr' is configured on owner side (${owner_url})"
-  if [ -z "$(get_owner_redirect_info "${owner_url}")" ]; then
+  local current
+  current="$(get_rvto2addr "${owner_url}" || true)"
+  log_info "Retrieved 'RVTO2Addr': ${current}"
+  if [ -z "${current}" ] || [ "${current}" = "[]" ] || [ "${current}" = "null" ]; then
     log_warn "'RVTO2Addr' not found, creating it"
-    set_owner_redirect_info "${owner_url}" "${real_owner_ip}" "${owner_dns}" "${owner_port}" "${owner_protocol}"
+    set_rvto2addr "${owner_url}" "${real_owner_ip}" "${owner_dns}" "${owner_port}" "${owner_protocol}"
   else
     log_info "'RVTO2Addr' found, updating it"
-    update_owner_redirect_info "${owner_url}" "${real_owner_ip}" "${owner_dns}" "${owner_port}" "${owner_protocol}"
+    update_rvto2addr "${owner_url}" "${real_owner_ip}" "${owner_dns}" "${owner_port}" "${owner_protocol}"
   fi
   echo
 }

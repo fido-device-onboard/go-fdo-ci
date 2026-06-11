@@ -3,6 +3,7 @@ set -euox pipefail
 
 # Import util functions
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/utils.sh"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../utils/mgmt-api-v1.sh"
 
 run_test() {
 
@@ -53,7 +54,7 @@ run_test() {
   send_manufacturer_ov_to_owner "${manufacturer_url}" "${guid}" "${owner_url}"
 
   log_info "Setting or updating Owner Redirect Info (RVTO2Addr)"
-  set_or_update_owner_redirect_info "${owner_url}" "${owner_service_name}" "${owner_dns}" "${owner_port}"
+  set_or_update_rvto2addr "${owner_url}" "${owner_service_name}" "${owner_dns}" "${owner_port}" "${owner_protocol}"
 
   sleep 60
 

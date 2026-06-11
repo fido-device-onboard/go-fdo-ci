@@ -1,4 +1,9 @@
-#! /bin/bash
+#! /usr/bin/env bash
+
+set -euo pipefail
+
+# Default RV info JSON for standard tests (can be overridden per test)
+rv_info="[{\"dns\": \"${rendezvous_dns}\", \"device_port\": \"${rendezvous_port}\", \"protocol\": \"${rendezvous_protocol}\", \"ip\": \"${rendezvous_ip}\", \"owner_port\": \"${rendezvous_port}\"}]"
 
 get_rendezvous_info() {
   local manufacturer_url=$1
@@ -28,28 +33,20 @@ update_rendezvous_info() {
     "${manufacturer_url}/api/v1/rvinfo"
 }
 
-get_owner_redirect_info() {
+get_rvto2addr() {
   local owner_url=$1
   curl --fail --verbose --silent --insecure \
     --header 'Content-Type: text/plain' \
     "${owner_url}/api/v1/owner/redirect"
 }
 
-set_owner_redirect_info() {
+set_rvto2addr() {
   local owner_url=$1
   local ip=$2
   local dns=$3
   local port=$4
-  # TransportProtocol /= (
-  #     ProtTCP:    1,     ;; bare TCP stream
-  #     ProtTLS:    2,     ;; bare TLS stream
-  #     ProtHTTP:   3,
-  #     ProtCoAP:   4,
-  #     ProtHTTPS:  5,
-  #     ProtCoAPS:  6,
-  # )
   local protocol=$5
-  rvto2addr="[{\"ip\": \"${ip}\", \"dns\": \"${dns}\", \"port\": \"${port}\", \"protocol\": \"${protocol}\"}]"
+  local rvto2addr="[{\"ip\": \"${ip}\", \"dns\": \"${dns}\", \"port\": \"${port}\", \"protocol\": \"${protocol}\"}]"
   curl --fail --verbose --silent --insecure \
     --request POST \
     --header 'Content-Type: text/plain' \
@@ -57,21 +54,13 @@ set_owner_redirect_info() {
     "${owner_url}/api/v1/owner/redirect"
 }
 
-update_owner_redirect_info() {
+update_rvto2addr() {
   local owner_url=$1
   local ip=$2
   local dns=$3
   local port=$4
-  # TransportProtocol /= (
-  #     ProtTCP:    1,     ;; bare TCP stream
-  #     ProtTLS:    2,     ;; bare TLS stream
-  #     ProtHTTP:   3,
-  #     ProtCoAP:   4,
-  #     ProtHTTPS:  5,
-  #     ProtCoAPS:  6,
-  # )
   local protocol=$5
-  rvto2addr="[{\"ip\": \"${ip}\", \"dns\": \"${dns}\", \"port\": \"${port}\", \"protocol\": \"${protocol}\"}]"
+  local rvto2addr="[{\"ip\": \"${ip}\", \"dns\": \"${dns}\", \"port\": \"${port}\", \"protocol\": \"${protocol}\"}]"
   curl --fail --verbose --silent --insecure \
     --request PUT \
     --header 'Content-Type: text/plain' \

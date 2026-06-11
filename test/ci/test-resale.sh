@@ -3,6 +3,7 @@
 set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/utils.sh"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../utils/mgmt-api-v1.sh"
 
 new_owner_service_name=new_owner
 new_owner_dns=new_owner
@@ -95,7 +96,7 @@ run_test() {
   resell "${owner_url}" "${guid}" "${new_owner_pub}" "${new_owner_ov}"
 
   log_info "Setting or updating the New Owner Redirect Info (RVTO2Addr)"
-  set_or_update_owner_redirect_info "${new_owner_url}" "${new_owner_service_name}" "${new_owner_dns}" "${new_owner_port}" "${new_owner_protocol}"
+  set_or_update_rvto2addr "${new_owner_url}" "${new_owner_service_name}" "${new_owner_dns}" "${new_owner_port}" "${new_owner_protocol}"
 
   log_info "Sending the Ownership Voucher to the New Owner"
   send_ov_to_owner "${new_owner_url}" "${new_owner_ov}"
