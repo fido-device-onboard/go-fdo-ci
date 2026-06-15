@@ -213,18 +213,18 @@ case "${ID}-${VERSION_ID}" in
     ;;
 esac
 
-# Building go-fdo-client rpm packages
-log_info "Building go-fdo-client rpm packages"
-pushd ../../.. && \
-make rpm
-sudo cp rpmbuild/rpms/"$(uname -m)"/*.rpm test/fmf/tests && popd
-
 # Building bootc container with go-fdo-client installed
 log_info "Building bootc container with go-fdo-client installed"
+if [[ -z "${PACKIT_COPR_PROJECT:-}" ]]; then
+    log_error "PACKIT_COPR_PROJECT is not set. Cannot install go-fdo-client from Copr."
+    exit 1
+fi
 tee Containerfile >/dev/null <<EOF
 FROM ${base_image_url}
-COPY go-fdo-client-*.rpm /tmp/
-RUN dnf install -y /tmp/go-fdo-client-*.rpm
+RUN dnf install -y 'dnf-command(copr)' && \
+    dnf copr enable -y ${PACKIT_COPR_PROJECT} && \
+    dnf install -y go-fdo-client && \
+    dnf clean all
 EOF
 podman build --retry=5 --retry-delay=10s -t "fdo-client-bootc:latest" -f Containerfile .
 
