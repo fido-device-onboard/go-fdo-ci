@@ -573,7 +573,7 @@ verify_equal_files() {
 }
 
 on_failure() {
-  trap - ERR
+  trap - EXIT
   stop_services
   test_fail
 }

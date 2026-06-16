@@ -8,7 +8,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../utils
 run_test() {
 
   log_info "Setting the error trap handler"
-  trap on_failure ERR
+  trap on_failure EXIT
 
   log_info "Environment variables"
   show_env
@@ -70,7 +70,7 @@ run_test() {
   run_fido_device_onboard "${guid}" --debug || log_error "Device onboarding did not complete successfully after rendezvous start"
 
   log_info "Unsetting the error trap handler"
-  trap - ERR
+  trap - EXIT
   test_pass
 }
 

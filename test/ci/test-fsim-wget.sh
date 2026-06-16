@@ -88,7 +88,7 @@ run_test() {
   services+=("${wget_httpd_service_name}")
 
   log_info "Setting the error trap handler"
-  trap on_failure ERR
+  trap on_failure EXIT
 
   log_info "Environment variables"
   show_env
@@ -168,7 +168,7 @@ run_test() {
   verify_equal_files "${wget_source_file3}" "${credentials_dir}/${wget_file3_name}"
 
   log_info "Unsetting the error trap handler"
-  trap - ERR
+  trap - EXIT
   test_pass
 }
 

@@ -577,7 +577,7 @@ start_services() {
 }
 
 on_failure() {
-  trap - ERR
+  trap - EXIT
   # Collect AVC denials before save_logs, which submits all files under base_dir
   collect_avcs
   generate_audit2allow_report
@@ -588,6 +588,7 @@ on_failure() {
 }
 
 cleanup() {
+  trap - EXIT
   # Collect AVC denials before save_logs, which submits all files under base_dir
   collect_avcs
   generate_audit2allow_report

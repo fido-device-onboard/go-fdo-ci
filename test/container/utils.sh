@@ -113,7 +113,7 @@ save_logs() {
 }
 
 on_failure() {
-  trap - ERR
+  trap - EXIT
   save_logs
   stop_services
   test_fail

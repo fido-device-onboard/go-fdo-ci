@@ -53,7 +53,7 @@ run_test() {
   services+=("${new_owner_service_name}")
 
   log_info "Setting the error trap handler"
-  trap on_failure ERR
+  trap on_failure EXIT
 
   log_info "Environment variables"
   show_env
@@ -105,7 +105,7 @@ run_test() {
   run_fido_device_onboard "${guid}" --debug
 
   log_info "Unsetting the error trap handler"
-  trap - ERR
+  trap - EXIT
   test_pass
 }
 
