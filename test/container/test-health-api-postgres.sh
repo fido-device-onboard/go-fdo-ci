@@ -37,7 +37,7 @@ run_test() {
   wait_for_services_ready
 
   log_info "Checking the service is healthy"
-  curl --fail --verbose "${rendezvous_health_url}"
+  curl --fail --verbose "${rendezvous_health_url}" || log_error "Expected healthy service"
 
   log_info "Stopping rendezvous database"
   stop_service rendezvous-db
