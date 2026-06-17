@@ -6,7 +6,7 @@ description: |
     - Provision device with bootc image
     - Device initialization and onboarding
 
-test: ../../bootc/test-onboarding.sh
+test: ./test-onboarding.sh
 
 framework: shell
 

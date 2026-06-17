@@ -8,7 +8,7 @@ description: |
     - ServiceInfo module testing
     - Protocol validation with TLS
 
-test: ../../rpm/test-onboarding-https.sh
+test: ./test-onboarding-https.sh
 
 framework: shell
 
