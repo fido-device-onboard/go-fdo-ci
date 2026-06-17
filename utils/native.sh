@@ -163,6 +163,12 @@ resolve_rvto2addr() {
   fi
 }
 
+count_in_log() {
+  local log=$1
+  local pattern=$2
+  grep -c "${pattern}" "${log}" 2>/dev/null || echo "0"
+}
+
 create_directories() {
   for directory in "${directories[@]}"; do
     mkdir -p "${directory}"
