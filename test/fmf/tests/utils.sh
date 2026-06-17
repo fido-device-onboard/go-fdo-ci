@@ -4,7 +4,7 @@
 # This library provides reusable functions for FDO client E2E testing
 # Source this file in your test scripts: source utils.sh
 #
-# Aligned with go-fdo-server/test/ci/utils.sh for consistency
+# Aligned with go-fdo-server/utils/native.sh for consistency
 
 set -euo pipefail
 
