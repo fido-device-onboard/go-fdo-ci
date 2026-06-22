@@ -228,6 +228,17 @@ uninstall_client() {
   }
 }
 
+run_go_fdo_client() {
+  # If the command times out, the return code is 124 (see: man timeout)
+  # If the command finishes before the timeout, the return code comes from 'go-fdo-client'
+  local exit_code=0
+  timeout "${client_timeout}" "/usr/bin/go-fdo-client" "$@" || exit_code=$?
+  if [[ ${exit_code} -ne 0 ]]; then
+    log_warn "'go-fdo-client' exited with '${exit_code}' (124 -> timeout):\n  - go-fdo-client $*"
+  fi
+  return ${exit_code}
+}
+
 install_server() {
   # If PACKIT_COPR_RPMS is not defined it means we are running the test
   # locally so we will build and install the RPMs from the *committed* code
