@@ -47,11 +47,11 @@ run_test() {
   log_info "Adding Device CA certificate to owner"
   add_device_ca_cert "${owner_url}" "${device_ca_crt}" | jq -r -M .
 
-  log_info "Sending Ownership Voucher to the Owner"
-  send_manufacturer_ov_to_owner "${manufacturer_url}" "${guid}" "${owner_url}"
-
   log_info "Adding wrong Device CA certificate to rendezvous"
   add_device_ca_cert "${rendezvous_url}" "${manufacturer_crt}" | jq -r -M .
+
+  log_info "Sending Ownership Voucher to the Owner"
+  send_manufacturer_ov_to_owner "${manufacturer_url}" "${guid}" "${owner_url}"
 
   log_info "Running FIDO Device Onboard (expected to fail)"
   client_timeout=10s
