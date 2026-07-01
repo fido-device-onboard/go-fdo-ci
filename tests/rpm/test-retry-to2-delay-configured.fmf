@@ -1,0 +1,28 @@
+summary: TO2 retry delay configured via --to2-retry-delay flag
+description: |
+    Tests the --to2-retry-delay flag that adds a delay between TO2
+    owner attempts:
+    - Multiple unreachable owners cause TO2 failures with delays
+    - Configured 3s delay applied between each TO2 attempt
+    - Final owner succeeds after retries
+
+test: ./test-retry-to2-delay-configured.sh
+
+framework: shell
+
+duration: 10m
+
+require:
+  - go-fdo-server
+  - go-fdo-server-manufacturer
+  - go-fdo-server-owner
+  - go-fdo-server-rendezvous
+
+tag:
+  - fdo
+  - e2e
+  - protocol
+  - retry
+  - to2
+  - rpm
+  - server

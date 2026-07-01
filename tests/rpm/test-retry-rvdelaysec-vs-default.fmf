@@ -1,0 +1,28 @@
+summary: RVDelaysec configured vs default delay with user interruption
+description: |
+    Tests directive delay behavior with unreachable rendezvous endpoints:
+    - First directive fails TO1 with configured 5s delay
+    - Second (last) directive fails TO1, triggering default 120s delay
+    - SIGINT sent to verify graceful user cancellation
+    - Validates "Onboarding canceled by user" message
+
+test: ./test-retry-rvdelaysec-vs-default.sh
+
+framework: shell
+
+duration: 10m
+
+require:
+  - go-fdo-server
+  - go-fdo-server-manufacturer
+  - go-fdo-server-owner
+  - go-fdo-server-rendezvous
+
+tag:
+  - fdo
+  - e2e
+  - protocol
+  - retry
+  - delay
+  - rpm
+  - server

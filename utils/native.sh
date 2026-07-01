@@ -1,0 +1,609 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/certs.sh"
+
+base_dir="${PWD}/workdir"
+bin_dir="${base_dir}/bin"
+pid_dir="${base_dir}/run"
+log_level=debug
+logs_dir="${base_dir}/logs"
+certs_dir="${base_dir}/certs"
+db_dir="${base_dir}/db"
+credentials_dir="${base_dir}/device-credentials"
+
+server_src_dir="${SERVER_LOCAL_PATH:-${PWD}/src/server}"
+client_src_dir="${CLIENT_LOCAL_PATH:-${PWD}/src/client}"
+
+device_ca_key="${certs_dir}/device_ca.key"
+device_ca_crt="${device_ca_key/\.key/.crt}"
+device_ca_subj="/C=US/O=FDO/CN=Device CA"
+
+manufacturer_service_name="manufacturer"
+manufacturer_dns=manufacturer
+# needed for 'start_services' do not remove
+#shellcheck disable=SC2034
+manufacturer_ip=127.0.0.1
+manufacturer_port=8038
+manufacturer_pid_file="${pid_dir}/manufacturer.pid"
+manufacturer_log_level="${log_level}"
+manufacturer_log_file="${logs_dir}/${manufacturer_dns}.log"
+# key crt pub and subj variables are required to generate certificates
+manufacturer_key="${certs_dir}/manufacturer.key"
+#shellcheck disable=SC2034
+manufacturer_crt="${manufacturer_key/\.key/.crt}"
+#shellcheck disable=SC2034
+manufacturer_subj="/C=US/O=FDO/CN=Manufacturer"
+manufacturer_service="${manufacturer_dns}:${manufacturer_port}"
+# Default per-service protocol; caller may override
+manufacturer_protocol=http
+manufacturer_url="${manufacturer_protocol}://${manufacturer_service}"
+#shellcheck disable=SC2034
+# needed for 'wait_for_services_ready' do not remove
+manufacturer_health_url="${manufacturer_url}/health"
+manufacturer_db_type="sqlite"
+manufacturer_db_dsn="file:${db_dir}/${manufacturer_service_name}.db"
+
+rendezvous_service_name="rendezvous"
+rendezvous_dns=rendezvous
+#shellcheck disable=SC2034
+# needed for 'start_services' do not remove
+rendezvous_ip=127.0.0.1
+rendezvous_port=8041
+rendezvous_pid_file="${pid_dir}/rendezvous.pid"
+rendezvous_log_level="${log_level}"
+rendezvous_log_file="${logs_dir}/${rendezvous_dns}.log"
+rendezvous_service="${rendezvous_dns}:${rendezvous_port}"
+# Default per-service protocol; caller may override
+rendezvous_protocol=http
+rendezvous_url="${rendezvous_protocol}://${rendezvous_service}"
+#shellcheck disable=SC2034
+# needed for 'wait_for_services_ready' do not remove
+rendezvous_health_url="${rendezvous_url}/health"
+rendezvous_db_type="sqlite"
+rendezvous_db_dsn="file:${db_dir}/${rendezvous_service_name}.db"
+
+owner_service_name="owner"
+owner_dns=owner
+#shellcheck disable=SC2034
+# needed for 'start_services' do not remove
+owner_ip=127.0.0.1
+owner_port=8043
+owner_pid_file="${pid_dir}/owner.pid"
+owner_log_level="${log_level}"
+owner_log_file="${logs_dir}/${owner_dns}.log"
+# key crt pub and subj variables are required to generate certificates
+owner_key="${certs_dir}/owner.key"
+owner_crt="${owner_key/\.key/.crt}"
+#shellcheck disable=SC2034
+owner_pub="${owner_key/\.key/.pub}"
+#shellcheck disable=SC2034
+owner_subj="/C=US/O=FDO/CN=Owner"
+owner_service="${owner_dns}:${owner_port}"
+# Default per-service protocol; caller may override
+owner_protocol=http
+owner_url="${owner_protocol}://${owner_service}"
+#shellcheck disable=SC2034
+# needed for 'wait_for_services_ready' do not remove
+owner_health_url="${owner_url}/health"
+#shellcheck disable=SC2034
+owner_ov="${base_dir}/owner.ov"
+owner_db_type="sqlite"
+owner_db_dsn="file:${db_dir}/${owner_service_name}.db"
+
+# HTTPS transport cert paths
+manufacturer_https_key="${certs_dir}/manufacturer-http.key"
+manufacturer_https_crt="${certs_dir}/manufacturer-http.crt"
+rendezvous_https_key="${certs_dir}/rendezvous-http.key"
+rendezvous_https_crt="${certs_dir}/rendezvous-http.crt"
+owner_https_key="${certs_dir}/owner-http.key"
+owner_https_crt="${certs_dir}/owner-http.crt"
+
+# go-fdo-client operation timeout.
+client_timeout="300s"
+
+# seconds to wait for TO0 to complete
+to0_wait_seconds=10
+
+declare -a services=("${manufacturer_service_name}" "${rendezvous_service_name}" "${owner_service_name}")
+declare -a directories=("${base_dir}" "${bin_dir}" "${certs_dir}" "${credentials_dir}" "${logs_dir}" "${db_dir}")
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log() {
+  echo -ne "$@" >&2
+}
+
+log_info() {
+  log "${BLUE}[INFO]${NC} ⭐" "$@" "\n"
+}
+
+log_warn() {
+  log "${YELLOW}[WARN]${NC} 🚧" "$@" "\n"
+}
+
+log_success() {
+  log "✔" "$@" "\n"
+}
+
+log_error() {
+  log "${RED}[ERROR]${NC} ❌" "$@" "\n"
+  return 1
+}
+
+test_pass() {
+  log "${GREEN}[PASS]${NC} ✅ Test PASSED!\n"
+}
+
+test_fail() {
+  log_error "Test FAILED!"
+}
+
+show_env() {
+  env -0 | sort -z | tr '\0' '\n' >&2
+}
+
+find_in_log() {
+  local log=$1
+  local pattern=$2
+  grep -q "${pattern}" "${log}"
+}
+
+resolve_rvto2addr() {
+  local service_name=$1
+  local rvto2addr_json=$2
+  local real_ip
+  real_ip="$(get_real_ip "${service_name}")"
+  if [ -n "${real_ip}" ]; then
+    echo "${rvto2addr_json}" | jq --arg ip "${real_ip}" '[.[] | if has("ip") then .ip = $ip else . end]'
+  else
+    echo "${rvto2addr_json}"
+  fi
+}
+
+count_in_log() {
+  local log=$1
+  local pattern=$2
+  grep -c "${pattern}" "${log}" 2>/dev/null || echo "0"
+}
+
+create_directories() {
+  for directory in "${directories[@]}"; do
+    mkdir -p "${directory}"
+    log "  ⚙ ${directory}\n"
+  done
+}
+
+set_hostname() {
+  local dns=$1
+  local ip=$2
+  if grep -q " ${dns}" /etc/hosts; then
+    tmp_hosts=$(mktemp)
+    sed "s/.* ${dns}/$ip $dns/" /etc/hosts >"${tmp_hosts}"
+    sudo cp "${tmp_hosts}" /etc/hosts
+    rm -f "${tmp_hosts}"
+  else
+    echo "${ip} ${dns}" | sudo tee -a /etc/hosts >/dev/null
+  fi
+}
+
+unset_hostname() {
+  local dns=$1
+  local ip=$2
+  if grep -q " ${dns}" /etc/hosts; then
+    tmp_hosts=$(mktemp)
+    sed "/.* ${dns}/d" /etc/hosts >"${tmp_hosts}"
+    sudo cp "${tmp_hosts}" /etc/hosts
+    rm -f "${tmp_hosts}"
+  fi
+}
+
+set_hostnames() {
+  for service in "${services[@]}"; do
+    service_ip=${service}_ip
+    service_dns=${service}_dns
+    log "  ⚙ ${!service_ip} ${!service_dns} "
+    set_hostname "${!service_dns}" "${!service_ip}"
+    log_success
+  done
+}
+
+unset_hostnames() {
+  log_info "Removing hostnames from '/etc/hosts'"
+  for service in "${services[@]}"; do
+    local service_ip=${service}_ip
+    local service_dns=${service}_dns
+    log "  ⚙ ${!service_ip} ${!service_dns} "
+    unset_hostname "${!service_dns}" "${!service_ip}"
+    log_success
+  done
+}
+
+configure_services() {
+  generate_https_certs
+  for service in "${services[@]}"; do
+    log "  ⚙ Configuring service ${service} "
+    configure_service "${service}"
+    log_success
+  done
+}
+
+configure_service() {
+  local service=$1
+  local configure_service="configure_service_${service}"
+  ! declare -F "${configure_service}" >/dev/null || ${configure_service}
+}
+
+get_real_ip() {
+  local service=$1
+  local service_ip=${service}_ip
+  echo "${!service_ip}"
+}
+
+wait_for_url() {
+  local status
+  local retry=0
+  local -r interval=2
+  local -r max_retries=5
+  local url=$1
+  while true; do
+    [[ "$(curl --insecure --silent --output /dev/null --write-out '%{http_code}' "${url}")" = "200" ]] && break
+    status=$?
+    ((retry += 1))
+    if [ $retry -gt $max_retries ]; then
+      return $status
+    fi
+    sleep "$interval"
+  done
+}
+
+wait_for_service_ready() {
+  local service=$1
+  local service_health_url="${service}_health_url"
+  [[ -v "${service_health_url}" ]] || log_error "service ${service} has no health URL"
+  log "  ⚙ Waiting for ${!service_health_url} to be healthy "
+  wait_for_url "${!service_health_url}" || {
+    status="$?"
+    echo "❌"
+    return "${status}"
+  }
+  log_success
+}
+
+wait_for_services_ready() {
+  for service in "${services[@]}"; do
+    # only wait for those services that define a health URL
+    local service_health_url="${service}_health_url"
+    [[ ! -v "${service_health_url}" ]] || wait_for_service_ready "${service}"
+  done
+}
+
+run_go_fdo_client() {
+  mkdir -p "${credentials_dir}"
+  cd "${credentials_dir}"
+  # If the command times out, the return code is 124 (see: man timeout)
+  # If the command finishes before the timeout, the return code comes from 'go-fdo-client'
+  local exit_code=0
+  timeout "${client_timeout}" "${bin_dir}/go-fdo-client" "$@" || exit_code=$?
+  if [[ ${exit_code} -ne 0 ]]; then
+    log_warn "'go-fdo-client' exited with '${exit_code}' (124 -> timeout):\n  - go-fdo-client $*"
+  fi
+  cd - >/dev/null
+  return ${exit_code}
+}
+
+run_device_initialization() {
+  local tmp_credentials_file="$(mktemp --tmpdir="${credentials_dir}")"
+  local tmp_log_file="$(mktemp --tmpdir="${logs_dir}")"
+  run_go_fdo_client --blob "${tmp_credentials_file}" --debug device-init "${manufacturer_url}" --device-info=gotest --key ec256 --insecure-tls=true | tee -a ${tmp_log_file} >&2
+  guid=$(run_go_fdo_client --blob "${tmp_credentials_file}" print | grep GUID | awk '{print $2}')
+  local device_credentials="$(get_device_credentials_file_path "${guid}")"
+  local log_file="$(get_device_onboard_log_file_path "${guid}")"
+  mv "${tmp_credentials_file}" "${device_credentials}"
+  mv "${tmp_log_file}" "${log_file}"
+  echo "${guid}"
+}
+
+get_device_init_log_file_path() {
+  guid=${1}
+  [[ "${guid}" =~ ^[a-f0-9]{32}$ ]] || log_error "Device guid required as first argument"
+  echo "${logs_dir}/${guid}-device-onboard.log"
+}
+
+get_device_credentials_file_path() {
+  guid=${1}
+  [[ "${guid}" =~ ^[a-f0-9]{32}$ ]] || log_error "Device guid required as first argument"
+  echo "${credentials_dir}/${guid}.creds"
+}
+
+get_device_onboard_log_file_path() {
+  guid=${1}
+  [[ "${guid}" =~ ^[a-f0-9]{32}$ ]] || log_error "Device guid required as first argument"
+  [ -n "${guid}" ] || log_error "Device guid required as first argument"
+  echo "${logs_dir}/${guid}-device-onboard.log"
+}
+
+run_fido_device_onboard() {
+  local guid=$1
+  local log_file
+  shift
+  [[ "${guid}" =~ ^[a-f0-9]{32}$ ]] || log_error "Device guid required as first argument"
+  log_file="$(get_device_onboard_log_file_path "${guid}")"
+  run_go_fdo_client --blob "$(get_device_credentials_file_path "${guid}")" onboard --key ec256 --kex ECDH256 --insecure-tls=true "$@" | tee -a "${log_file}"
+  find_in_log "${log_file}" 'FIDO Device Onboard Complete' || return $?
+}
+
+run_go_fdo_server() {
+  local role=$1
+  local address_port=$2
+  local db_type=$3
+  local db_dsn=$4
+  local pid_file=$5
+  local log=$6
+  shift 6
+  mkdir -p "$(dirname "${log}")"
+  mkdir -p "$(dirname "${pid_file}")"
+  nohup "${bin_dir}/go-fdo-server" "${role}" "${address_port}" --db-type "${db_type}" --db-dsn "${db_dsn}" --log-level=debug "${@}" &>"${log}" &
+  echo -n $! >"${pid_file}"
+}
+
+start_service_manufacturer() {
+  local extra_opts=()
+  if [ "${manufacturer_protocol}" = "https" ]; then
+    extra_opts+=(--http-cert "${manufacturer_https_crt}" --http-key "${manufacturer_https_key}")
+  fi
+  run_go_fdo_server manufacturing "${manufacturer_service}" "${manufacturer_db_type}" "${manufacturer_db_dsn}" "${manufacturer_pid_file}" "${manufacturer_log_file}" \
+    --manufacturing-key="${manufacturer_key}" \
+    --owner-cert="${owner_crt}" \
+    --device-ca-cert="${device_ca_crt}" \
+    --device-ca-key="${device_ca_key}" \
+    "${extra_opts[@]}"
+}
+
+start_service_rendezvous() {
+  local extra_opts=()
+  if [ "${rendezvous_protocol}" = "https" ]; then
+    extra_opts+=(--http-cert "${rendezvous_https_crt}" --http-key "${rendezvous_https_key}")
+  fi
+  run_go_fdo_server rendezvous "${rendezvous_service}" "${rendezvous_db_type}" "${rendezvous_db_dsn}" "${rendezvous_pid_file}" "${rendezvous_log_file}" \
+    "${extra_opts[@]}"
+}
+
+start_service_owner() {
+  local extra_opts=()
+  if [ "${owner_protocol}" = "https" ]; then
+    extra_opts+=(--http-cert "${owner_https_crt}" --http-key "${owner_https_key}")
+  fi
+  if [ "${rendezvous_protocol}" = "https" ]; then
+    # skip verify of rendezvous cert (self signed)
+    extra_opts+=(--to0-insecure-tls)
+  fi
+  run_go_fdo_server owner "${owner_service}" "${owner_db_type}" "${owner_db_dsn}" "${owner_pid_file}" "${owner_log_file}" \
+    --owner-key="${owner_key}" \
+    --device-ca-cert="${device_ca_crt}" \
+    "${extra_opts[@]}"
+}
+
+start_service() {
+  local service=$1
+  local start_service="start_service_${service}"
+  ! declare -F "${start_service}" >/dev/null || ${start_service}
+}
+
+start_services() {
+  log_info "Adding hostnames to '/etc/hosts'"
+  set_hostnames
+  log_info "Starting Services"
+  for service in "${services[@]}"; do
+    log "  ⚙ Starting service ${service} "
+    start_service "${service}"
+    log_success
+  done
+}
+
+stop_service() {
+  local service=$1
+  local service_pid_file="${service}_pid_file"
+  if [[ -v "${service_pid_file}" ]] && [[ -f "${!service_pid_file}" ]]; then
+    if pkill -F "${!service_pid_file}"; then
+      wait "$(cat "${!service_pid_file}")" 2>/dev/null || :
+    fi
+  fi
+}
+
+stop_services() {
+  log_info "Stopping services"
+  for service in "${services[@]}"; do
+    log "  ⚙ Stopping service ${service} "
+    stop_service "${service}"
+    log_success
+  done
+}
+
+fetch_client_repo() {
+  [ -d "${client_src_dir}" ] || git clone --single-branch https://github.com/fido-device-onboard/go-fdo-client "${client_src_dir}"
+  if [ -v "CLIENT_REF" ]; then
+    pushd "${client_src_dir}" >/dev/null
+    git fetch origin "${CLIENT_REF}"
+    git checkout "FETCH_HEAD"
+    popd >/dev/null
+  fi
+}
+
+install_client() {
+  fetch_client_repo
+  log_info "Building client from local path: ${client_src_dir}"
+  pushd "${client_src_dir}" >/dev/null
+  make && install -m 755 go-fdo-client "${bin_dir}" && rm -f go-fdo-client
+  popd >/dev/null
+}
+
+uninstall_client() {
+  log_info "Uninstalling client"
+  rm -vf "${bin_dir}/go-fdo-client"
+}
+
+fetch_server_repo() {
+  [ -d "${server_src_dir}" ] || git clone --single-branch https://github.com/fido-device-onboard/go-fdo-server "${server_src_dir}"
+  if [ -v "SERVER_REF" ]; then
+    pushd "${server_src_dir}" >/dev/null
+    git fetch origin "${SERVER_REF}"
+    git checkout "FETCH_HEAD"
+    popd >/dev/null
+  fi
+}
+
+install_server() {
+  fetch_server_repo
+  log_info "Building server from local path: ${server_src_dir}"
+  pushd "${server_src_dir}" >/dev/null
+  make && install -m 755 go-fdo-server "${bin_dir}" && rm -f go-fdo-server
+  popd >/dev/null
+}
+
+uninstall_server() {
+  log_info "Uninstalling server"
+  rm -vf "${bin_dir}/go-fdo-server"
+}
+
+generate_service_certs() {
+  for service in "${services[@]}"; do
+    local service_key="${service}_key"
+    local service_crt="${service}_crt"
+    local service_subj="${service}_subj"
+    if [[ -v "${service_key}" && -v "${service_crt}" && -v "${service_subj}" ]]; then
+      generate_cert "${!service_key}" "${!service_crt}" "${!service_subj}"
+    fi
+  done
+  generate_cert "${device_ca_key}" "${device_ca_crt}" "${device_ca_subj}"
+  ls -l "${certs_dir}"
+}
+
+generate_https_certs() {
+  for service in "${services[@]}"; do
+    local service_protocol="${service}_protocol"
+    [[ "${!service_protocol-}" = "https" ]] || continue
+    local service_key="${service}_https_key"
+    local service_crt="${service}_https_crt"
+    local service_dns="${service}_dns"
+    local service_subj="/C=US/O=FDO/CN=${!service_dns:-${service}}"
+    if [[ -v "${service_key}" && -v "${service_crt}" ]]; then
+      generate_cert "${!service_key}" "${!service_crt}" "${service_subj}" "pem"
+    fi
+  done
+}
+
+set_or_update_rendezvous_info() {
+  local manufacturer_url=$1
+  local rendezvous_info_json=$2
+
+  log_info "Checking if 'RendezvousInfo' is configured on manufacturer side (${manufacturer_url})"
+  local current
+  current="$(get_rendezvous_info "${manufacturer_url}" || true)"
+  log_info "Retrieved 'RendezvousInfo': ${current}"
+  if [ -z "${current}" ] || [ "${current}" = "[]" ] || [ "${current}" = "No rvInfo found" ] || [ "${current}" = "null" ]; then
+    log_warn "'RendezvousInfo' not found, creating it"
+    set_rendezvous_info "${manufacturer_url}" "${rendezvous_info_json}"
+  else
+    log_info "'RendezvousInfo' found, updating it"
+    update_rendezvous_info "${manufacturer_url}" "${rendezvous_info_json}"
+  fi
+  echo
+}
+
+send_manufacturer_ov_to_owner() {
+  local manufacturer_url=$1
+  local guid=$2
+  local owner_url=$3
+  ov_dir="${base_dir}/ovs"
+  mkdir -p "${ov_dir}"
+  ov_file="${ov_dir}/${guid}.ov"
+  get_ov_from_manufacturer "${manufacturer_url}" "${guid}" "${ov_file}"
+  send_ov_to_owner "${owner_url}" "${ov_file}"
+  status=$?
+  log_info "Waiting '${to0_wait_seconds}' seconds for TO0 to be performed by the Owner"
+  sleep "${to0_wait_seconds}"
+  return ${status}
+}
+
+set_or_update_rvto2addr() {
+  local owner_url=$1
+  local rvto2addr_json=$2
+  log_info "Checking if 'RVTO2Addr' is configured on owner side (${owner_url})"
+  local current
+  current="$(get_rvto2addr "${owner_url}" || true)"
+  log_info "Retrieved 'RVTO2Addr': ${current}"
+  if [ -z "${current}" ] || [ "${current}" = "[]" ] || [ "${current}" = "null" ]; then
+    log_warn "'RVTO2Addr' not found, creating it"
+    set_rvto2addr "${owner_url}" "${rvto2addr_json}"
+  else
+    log_info "'RVTO2Addr' found, updating it"
+    update_rvto2addr "${owner_url}" "${rvto2addr_json}"
+  fi
+  echo
+}
+
+get_service_logs() {
+  local service=$1
+  local service_log_var="${service}_log_file"
+  if [[ -v "${service_log_var}" ]]; then
+    [ ! -f "${!service_log_var}" ] || cat "${!service_log_var}"
+  fi
+}
+
+get_logs() {
+  log_info "Retrieving logs"
+  for service in "${services[@]}"; do
+    log "🛑 '${service}' logs:\n"
+    get_service_logs "${service}"
+  done
+}
+
+prepare_payload() {
+  local file_path=$1
+  mkdir -p "$(dirname "${file_path}")"
+  dd if=/dev/urandom of="${file_path}" bs=1M count=2 2>/dev/null
+}
+
+verify_equal_files() {
+  local file_1=$1
+  local file_2=$2
+
+  for file in "${file_1}" "${file_2}"; do
+    [ -f "${file}" ] || log_error "File not found: ${file}"
+  done
+
+  [ "${file_1}" != "${file_2}" ] || return 0
+
+  local file_1_sha file_2_sha
+  file_1_sha=$(sha256sum "${file_1}" | awk '{print $1}')
+  file_2_sha=$(sha256sum "${file_2}" | awk '{print $1}')
+  if [ "${file_1_sha}" != "${file_2_sha}" ]; then
+    log_error "Checksum mismatch: ${file_1}=${file_1_sha} ${file_2}=${file_2_sha}"
+  fi
+}
+
+on_failure() {
+  trap - EXIT
+  stop_services
+  test_fail
+}
+
+remove_files() {
+  log_info "Removing files from '${base_dir:?}'"
+  rm -vrf "${base_dir:?}"/*
+}
+
+cleanup() {
+  stop_services
+  unset_hostnames
+  uninstall_server
+  uninstall_client
+  remove_files
+}

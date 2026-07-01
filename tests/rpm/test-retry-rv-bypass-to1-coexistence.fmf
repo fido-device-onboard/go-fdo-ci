@@ -1,0 +1,29 @@
+summary: RV bypass with TO1 coexistence retry behavior
+description: |
+    Tests RV bypass with multiple unreachable owner URLs falling back
+    to normal TO1 on the second directive:
+    - RV bypass enabled with unreachable owners triggers TO2 failures
+    - Default TO2 retry delay (0s) means no delay between attempts
+    - Fallback to normal TO1 when bypass fails
+    - Directive delay applied between directives
+
+test: ./test-retry-rv-bypass-to1-coexistence.sh
+
+framework: shell
+
+duration: 10m
+
+require:
+  - go-fdo-server
+  - go-fdo-server-manufacturer
+  - go-fdo-server-owner
+  - go-fdo-server-rendezvous
+
+tag:
+  - fdo
+  - e2e
+  - protocol
+  - retry
+  - rv-bypass
+  - rpm
+  - server

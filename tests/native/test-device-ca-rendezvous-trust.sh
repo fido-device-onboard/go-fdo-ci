@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../../utils/native.sh"
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../../utils/mgmt-api-v1.sh"
+
+run_test() {
+
+  log_info "Setting the error trap handler"
+  trap on_failure EXIT
+
+  log_info "Environment variables"
+  show_env
+
+  log_info "Creating directories"
+  create_directories
+
+  log_info "Generating service certificates"
+  generate_service_certs
+
+  log_info "Build and install 'go-fdo-client' binary"
+  install_client
+
+  log_info "Build and install 'go-fdo-server' binary"
+  install_server
+
+  log_info "Configuring services"
+  configure_services
+
+  log_info "Configure DNS and start services"
+  start_services
+
+  log_info "Wait for the services to be ready:"
+  wait_for_services_ready
+
+  log_info "Resolving real owner IP for RVTO2Addr"
+  rvto2addr=$(resolve_rvto2addr "${owner_service_name}" "${rvto2addr}")
+
+  log_info "Setting or updating Rendezvous Info (RendezvousInfo)"
+  set_or_update_rendezvous_info "${manufacturer_url}" "${rv_info}"
+
+  log_info "Run Device Initialization"
+  guid=$(run_device_initialization)
+  log_info "Device initialized with GUID: ${guid}"
+
+  log_info "Setting or updating Owner Redirect Info (RVTO2Addr)"
+  set_or_update_rvto2addr "${owner_url}" "${rvto2addr}"
+
+  log_info "Adding Device CA certificate to owner"
+  add_device_ca_cert "${owner_url}" "${device_ca_crt}" | jq -r -M .
+
+  log_info "Adding wrong Device CA certificate to rendezvous"
+  add_device_ca_cert "${rendezvous_url}" "${manufacturer_crt}" | jq -r -M .
+
+  log_info "Sending Ownership Voucher to the Owner"
+  send_manufacturer_ov_to_owner "${manufacturer_url}" "${guid}" "${owner_url}"
+
+  log_info "Running FIDO Device Onboard (expected to fail)"
+  client_timeout=10s
+  ! run_fido_device_onboard "${guid}" --debug || log_error "Onboarding must fail!"
+
+  # We use get_service_logs instead of find_in_log here to make it work with containers:
+  # server logs are only saved to log files if the test fails.
+  get_service_logs "rendezvous" | grep "cryptographic verification failed: x509: certificate signed by unknown authority" || log_error "Rendezvous didn't reject the ownership voucher!"
+
+  log_info "Get the rendezvous Device CA certificates"
+  fingerprint=$(get_device_ca_certs "${rendezvous_url}" | jq -r -M '.certs[0].fingerprint')
+
+  log_info "Deleting certificate with fingerprint '${fingerprint}'"
+  delete_device_ca_cert "${rendezvous_url}" "${fingerprint}"
+
+  log_info "Adding correct Device CA certificate to rendezvous"
+  add_device_ca_cert "${rendezvous_url}" "${device_ca_crt}" | jq -r -M .
+
+  log_info "Running FIDO Device Onboard"
+  client_timeout=300s
+  run_fido_device_onboard "${guid}" --debug || log_error "Onboarding failed!"
+
+  log_info "Unsetting the error trap handler"
+  trap - EXIT
+  test_pass
+}
+
+# Allow running directly
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || {
+  run_test
+  cleanup
+}

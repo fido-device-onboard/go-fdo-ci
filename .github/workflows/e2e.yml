@@ -36,8 +36,8 @@ jobs:
         # jq is pre-installed on GitHub runners.
         run: |
           matrix=$(
-            for dir in test/ci test/container; do
-              type=$([[ "${dir}" == "test/ci" ]] && echo "Native" || echo "Container")
+            for dir in tests/native tests/container; do
+              type=$([[ "${dir}" == "tests/native" ]] && echo "Native" || echo "Container")
               for f in $(find "${dir}" -name 'test-*\.sh' -type f); do
                 test=$(basename "${f}")
                 jq -n --arg test "${test}" --arg type "${type}" --arg dir "${dir}" --arg name "${test/.sh/}" \

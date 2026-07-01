@@ -1,0 +1,29 @@
+summary: Complete FDO end-to-end protocol testing using default settings
+description: |
+    Comprehensive FDO testing covering:
+    - Default server configuration validation
+    - Default certificate installation
+    - Multi-server orchestration (manufacturer, rendezvous, owner)
+    - Device initialization and onboarding
+    - ServiceInfo module testing
+    - Protocol validation
+
+test: ./test-onboarding-defaults.sh
+
+framework: shell
+
+duration: 10m
+
+require:
+  - go-fdo-server
+  - go-fdo-server-manufacturer
+  - go-fdo-server-owner
+  - go-fdo-server-rendezvous
+
+tag:
+  - fdo
+  - e2e
+  - protocol
+  - onboarding
+  - rpm
+  - server
