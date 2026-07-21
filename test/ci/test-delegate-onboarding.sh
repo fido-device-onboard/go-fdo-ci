@@ -31,8 +31,8 @@ generate_delegate_cert() {
   local delegate_cnf_path="${delegate_key_path%.key}.cnf"
   local delegate_csr_path="${delegate_key_path%.key}.csr"
 
-  log_info "Generating delegate EC key"
-  openssl ecparam -name prime256v1 -genkey -out "${delegate_key_path}" 2>/dev/null
+  log_info "Generating delegate EC key in DER format (same as other service keys)"
+  openssl ecparam -name prime256v1 -genkey -outform der -out "${delegate_key_path}" 2>/dev/null
 
   log_info "Creating delegate openssl config with FDO permission OID ${permissions_oid}"
   cat >"${delegate_cnf_path}" <<EOF
@@ -43,7 +43,7 @@ extendedKeyUsage = ${permissions_oid}
 EOF
 
   log_info "Generating delegate CSR"
-  openssl req -new -key "${delegate_key_path}" -out "${delegate_csr_path}" -subj "/CN=FDO Delegate" 2>/dev/null
+  openssl req -new -key "${delegate_key_path}" -keyform der -out "${delegate_csr_path}" -subj "/CN=FDO Delegate" 2>/dev/null
 
   log_info "Signing delegate cert with owner key"
   openssl x509 -req \
