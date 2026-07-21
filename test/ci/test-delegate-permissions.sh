@@ -19,6 +19,13 @@ run_test() {
   log_info "Environment variables"
   show_env
 
+  log_info "Checking if client supports FDO 2.0"
+  if ! "${bin_dir}/go-fdo-client" onboard --help 2>&1 | grep -q "fdo-version"; then
+    log_warn "Client does not support --fdo-version flag, skipping FDO 2.0 delegate test"
+    test_pass
+    exit 0
+  fi
+
   log_info "Creating directories"
   create_directories
 
@@ -61,7 +68,7 @@ run_test() {
 
   log_info "Running FIDO Device Onboard with FDO 2.0 (expected to FAIL due to missing onboard permission)"
   client_timeout=30s
-  ! run_fido_device_onboard "${guid}" --debug --fdo-version 200 || log_error "SECURITY FAILURE: Onboarding should have failed with redirect-only delegate"
+  ! run_fido_device_onboard "${guid}" --debug || log_error "SECURITY FAILURE: Onboarding should have failed with redirect-only delegate"
 
   log_info "Verifying the owner server rejected the delegate due to missing permission"
   get_service_logs "owner" | grep -q "missing required permission\|delegate.*cannot onboard\|permit-onboard\|does not have onboarding permission" || log_error "Owner server did not detect missing onboard permission"

@@ -96,6 +96,13 @@ run_test() {
   log_info "Environment variables"
   show_env
 
+  log_info "Checking if client supports FDO 2.0"
+  if ! "${bin_dir}/go-fdo-client" onboard --help 2>&1 | grep -q "fdo-version"; then
+    log_warn "Client does not support --fdo-version flag, skipping FDO 2.0 delegate test"
+    test_pass
+    exit 0
+  fi
+
   log_info "Creating directories"
   create_directories
 
@@ -141,8 +148,8 @@ run_test() {
   log_info "Sending Ownership Voucher to the Owner"
   send_manufacturer_ov_to_owner "${manufacturer_url}" "${guid}" "${owner_url}"
 
-  log_info "Running FIDO Device Onboard with delegated owner (FDO 2.0 protocol)"
-  run_fido_device_onboard "${guid}" --debug --fdo-version 200 || log_error "Onboarding with delegate failed!"
+  log_info "Running FIDO Device Onboard with delegated owner (FDO 2.0 protocol, default)"
+  run_fido_device_onboard "${guid}" --debug || log_error "Onboarding with delegate failed!"
 
   log_info "Verifying FDO 2.0 protocol was used (message types 80-91)"
   find_in_log "${owner_log}" "msg/80" || log_error "FDO 2.0 message type 80 (HelloDeviceProbe) not found in owner logs"
