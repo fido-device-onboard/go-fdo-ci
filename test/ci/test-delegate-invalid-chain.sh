@@ -8,9 +8,6 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/test-delegate-onboarding.sh"
 
-# FDO delegate permission OIDs (re-declare for clarity)
-OID_PERMIT_ONBOARD_NEW_CRED="1.3.6.1.4.1.45724.3.1.2"
-
 # Paths for the "wrong" key that will sign the delegate cert
 wrong_signer_key="${certs_dir}/wrong_signer.key"
 wrong_signer_crt="${certs_dir}/wrong_signer.crt"

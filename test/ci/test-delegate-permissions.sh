@@ -8,9 +8,6 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/test-delegate-onboarding.sh"
 
-# OIDPermitRedirect only (no onboard permission)
-OID_PERMIT_REDIRECT="1.3.6.1.4.1.45724.3.1.1"
-
 run_test() {
 
   log_info "Setting the error trap handler"
