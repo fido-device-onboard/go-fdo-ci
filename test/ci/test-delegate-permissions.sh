@@ -64,7 +64,7 @@ run_test() {
   ! run_fido_device_onboard "${guid}" --debug --fdo-version 200 || log_error "SECURITY FAILURE: Onboarding should have failed with redirect-only delegate"
 
   log_info "Verifying the owner server rejected the delegate due to missing permission"
-  get_service_logs "owner" | grep -q "missing required permission\|delegate.*cannot onboard\|permit-onboard" || log_error "Owner server did not detect missing onboard permission"
+  get_service_logs "owner" | grep -q "missing required permission\|delegate.*cannot onboard\|permit-onboard\|does not have onboarding permission" || log_error "Owner server did not detect missing onboard permission"
   log_success "Owner server correctly rejected delegate without onboard permission"
 
   log_info "Unsetting the error trap handler"
