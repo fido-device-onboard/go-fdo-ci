@@ -52,13 +52,7 @@ run_test() {
   log_info "Environment variables"
   show_env
 
-  log_info "Checking if client supports FDO 2.0"
-  if ! "${bin_dir}/go-fdo-client" onboard --help 2>&1 | grep -q "fdo-version"; then
-    log_warn "Client does not support --fdo-version flag, skipping FDO 2.0 delegate test"
-    trap - EXIT
-    test_pass
-    exit 0
-  fi
+  check_fdo_20_support
 
   log_info "Creating directories"
   create_directories
