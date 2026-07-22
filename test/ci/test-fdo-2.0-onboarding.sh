@@ -48,47 +48,26 @@ run_test() {
   set_or_update_rvto2addr "${owner_url}" "${owner_service_name}" "${owner_dns}" "${owner_port}" "${owner_protocol}"
 
   log_info "Sending Ownership Voucher to the Owner"
-  send_ownership_voucher_to_owner "${owner_url}" "${guid}"
+  send_manufacturer_ov_to_owner "${manufacturer_url}" "${guid}" "${owner_url}"
 
-  log_info "Registering Ownership Voucher to Rendezvous"
-  register_ownership_voucher "${owner_url}" "${guid}"
-
-  log_info "Run FDO 2.0 onboarding (protocol version 200)"
-  run_device_onboarding_v2 "${guid}"
-
-  log_info "Verifying onboarding results"
-  verify_onboarding_success
+  log_info "Running FIDO Device Onboard with FDO 2.0"
+  run_fido_device_onboard "${guid}" --fdo-version 200 --debug || log_error "Onboarding failed!"
 
   log_info "Verifying FDO 2.0 protocol was used"
   verify_fdo_version "2.0"
 
-  log_success "FDO 2.0 onboarding completed successfully!"
-}
-
-# Override onboarding function to use FDO 2.0
-run_device_onboarding_v2() {
-  local guid=$1
-  log_info "Starting FDO 2.0 onboarding for device: ${guid}"
-
-  # Run onboard with explicit FDO version 200
-  sudo -u fdo /usr/local/bin/go-fdo-client onboard \
-    --fdo-version 200 \
-    --blob "${fdo_conf_root}/device_credential.bin" \
-    --key ec256 \
-    --kex ECDH256 \
-    --cipher A128GCM \
-    --insecure-tls \
-    --debug 2>&1 | tee "${test_dir}/onboard-v2.log"
-
-  log_info "FDO 2.0 onboarding completed"
+  log_info "Unsetting the error trap handler"
+  trap - EXIT
+  test_pass
 }
 
 verify_fdo_version() {
   local expected_version=$1
+  local log_file=$(get_device_onboard_log_file_path "${guid}")
   log_info "Verifying FDO protocol version ${expected_version} was used"
 
   # Check log for FDO 2.0 specific messages
-  if grep -q "Using FDO 2.0 protocol (message types 80-91)" "${test_dir}/onboard-v2.log"; then
+  if grep -q "Using FDO 2.0 protocol (message types 80-91)" "${log_file}"; then
     log_info "Confirmed: FDO ${expected_version} protocol was used"
   else
     log_error "FDO ${expected_version} protocol markers not found in logs"
@@ -96,5 +75,8 @@ verify_fdo_version() {
   fi
 }
 
-# Run the test
-run_test
+# Allow running directly
+[[ "${BASH_SOURCE[0]}" != "$0" ]] || {
+  run_test
+  cleanup
+}
