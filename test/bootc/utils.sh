@@ -31,6 +31,11 @@ case "${ID}-${VERSION_ID}" in
     base_image_url="quay.io/centos-bootc/centos-bootc:stream${VERSION_ID}"
     boot_args="uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no"
     ;;
+  rhel-10*)
+    os_variant="rhel10-unknown"
+    base_image_url="${BOOTC_BASE_IMAGE:-registry.redhat.io/rhel10/rhel-bootc:${VERSION_ID}}"
+    boot_args="uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no"
+    ;;
   *)
     log_error "Unsupported distro: ${ID}-${VERSION_ID}"
     exit 1
@@ -38,7 +43,72 @@ case "${ID}-${VERSION_ID}" in
 esac
 
 build_bootc_container() {
-  tee Containerfile >/dev/null <<EOF
+  # For any RHEL host, generate a repo file pointing at the nightly compose so
+  # that the container image can reach RHEL packages. The file is generated at
+  # runtime (rather than kept as a static template) so it works for any RHEL
+  # minor version (10.2, 10.3, …) without code changes.
+  local rhel_repo_file=""
+  if [[ "${ID}" == "rhel" ]] && [ -n "${DOWNLOAD_NODE:-}" ]; then
+    local major_ver="${VERSION_ID%%.*}"  # e.g. "10" from "10.2"
+    rhel_repo_file="files/rhel-${VERSION_ID}.repo"
+    mkdir -p files
+    cat > "${rhel_repo_file}" << EOF
+[RHEL-${VERSION_ID}-NIGHTLY-BaseOS]
+name=baseos
+baseurl=http://${DOWNLOAD_NODE}/rhel-${major_ver}/nightly/RHEL-${major_ver}/latest-RHEL-${VERSION_ID}/compose/BaseOS/\$basearch/os
+enabled=1
+# Nightly compose builds are not GPG-signed; gpgcheck=0 is intentional.
+gpgcheck=0
+sslverify=0
+[RHEL-${VERSION_ID}-NIGHTLY-AppStream]
+name=appstream
+baseurl=http://${DOWNLOAD_NODE}/rhel-${major_ver}/nightly/RHEL-${major_ver}/latest-RHEL-${VERSION_ID}/compose/AppStream/\$basearch/os
+enabled=1
+# Nightly compose builds are not GPG-signed; gpgcheck=0 is intentional.
+gpgcheck=0
+sslverify=0
+EOF
+  fi
+
+  if [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
+    # Install go-fdo-client from a specific brew build base path.
+    # BREW_CLIENT_RPMS_URL should point to the version/release directory of the package in brew.
+    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-client/1.0.0/4.el10_2.5
+    tee Containerfile >/dev/null <<EOF
+FROM ${base_image_url}
+# --nogpgcheck and sslverify=false are intentional: internal brew servers
+# use self-signed certificates and builds may not be GPG-signed.
+RUN dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_CLIENT_RPMS_URL}")
+EOF
+  elif [ -n "${COMPOSE_BASE_URL:-}" ]; then
+    # Install go-fdo-client from a compose repository.
+    # Generate per-stream repo files, copy them into the image, install, then remove them.
+    local compose_streams="${COMPOSE_STREAMS:-BaseOS AppStream}"
+    local arch
+    arch=$(uname -m)
+    local compose_base_url="${COMPOSE_BASE_URL%/}"  # strip trailing slash to avoid double slashes in baseurl
+    mkdir -p files
+    local repo_args=""
+    for stream in ${compose_streams}; do
+      local repo_name="compose-${ID}-${VERSION_ID}-${stream}"
+      local repo_file="files/${repo_name}.repo"
+      cat > "${repo_file}" <<EOF
+[${repo_name}]
+name=${repo_name}
+baseurl=${compose_base_url}/${stream}/${arch}/os/
+enabled=1
+gpgcheck=0
+sslverify=0
+EOF
+      repo_args+="COPY ${repo_file} /etc/yum.repos.d/${repo_name}.repo"$'\n'
+    done
+    tee Containerfile >/dev/null <<EOF
+FROM ${base_image_url}
+${repo_args}RUN dnf install -y --disablerepo='*' --enablerepo='compose-*' go-fdo-client && \
+    rm -f /etc/yum.repos.d/compose-*.repo
+EOF
+  else
+    tee Containerfile >/dev/null <<EOF
 FROM ${base_image_url}
 RUN dnf=\$(readlink \$(command -v dnf)); [ "\${dnf}" = "dnf5" ] || dnf=dnf ; \
     rpm -q --whatprovides \${dnf}'-command(copr)' &> /dev/null || \${dnf} install -y \${dnf}'-command(copr)'; \
@@ -46,6 +116,15 @@ RUN dnf=\$(readlink \$(command -v dnf)); [ "\${dnf}" = "dnf5" ] || dnf=dnf ; \
     \${dnf} install -y go-fdo-client; \
     \${dnf} copr disable -y @fedora-iot/fedora-iot
 EOF
+  fi
+
+  # Append the RHEL repo file into the container image when it was generated.
+  if [ -n "${rhel_repo_file}" ]; then
+    tee -a Containerfile >/dev/null << EOF
+COPY ${rhel_repo_file} /etc/yum.repos.d/rhel-${VERSION_ID}.repo
+EOF
+  fi
+
   podman build --retry=5 --retry-delay=10s -t "fdo-bootc:latest" -f Containerfile .
 }
 
@@ -99,19 +178,30 @@ echo "admin ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/admin' "${new_ks_file}"
 }
 
 install_server() {
-  if [ ! -v "PACKIT_COPR_RPMS" ]; then
+  if [ -v "PACKIT_COPR_RPMS" ]; then
+    echo "  - Expected RPMs:  ${PACKIT_COPR_RPMS}"
+  elif [ -n "${BREW_SERVER_RPMS_URL:-}" ]; then
+    # Install from a specific brew build base path.
+    # BREW_SERVER_RPMS_URL should point to the version/release directory of the package in brew.
+    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-server/1.0.1/2.el10_2.3
+    # --nogpgcheck and sslverify=false are intentional: internal brew servers
+    # use self-signed certificates and builds may not be GPG-signed.
+    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_SERVER_RPMS_URL}")
+  elif [ -n "${COMPOSE_BASE_URL:-}" ]; then
+    install_from_compose ${go_fdo_server_rpms}
+  else
     sudo dnf install -y golang make
     commit="$(git rev-parse --short HEAD)"
     rpm -q go-fdo-server | grep -q "go-fdo-server.*git${commit}.*" || {
       make rpm
       sudo dnf install -y rpmbuild/rpms/{noarch,"$(uname -m)"}/*git"${commit}"*.rpm
     }
-  else
-    echo "  - Expected RPMs:  ${PACKIT_COPR_RPMS}"
   fi
-  # Make sure the RPMS are installed
-  installed_rpms=$(rpm -q --qf "%{nvr}.%{arch} " go-fdo-server{,-{manufacturer,owner,rendezvous}})
-  echo "  - Installed RPMs: ${installed_rpms}"
+  installed_rpms=$(rpm -q --qf "%{nvr}.%{arch} " ${go_fdo_server_rpms})
+  log_info "Installed Server RPMs:"
+  for i in ${installed_rpms}; do
+    echo "    ⚙ $i"
+  done
 }
 
 install_client() {
@@ -140,6 +230,25 @@ configure_service_firewalld() {
     sudo dnf install -y firewalld
   fi
   sudo systemctl start firewalld
+
+  # firewalld 2.4.1+ no longer blocks on D-Bus at startup; poll until ready
+  # so the later libvirt network (zone=trusted) start doesn't race it.
+  log_info "Waiting for firewalld D-Bus interface to be ready"
+  local fw_timeout=30
+  local fw_elapsed=0
+  until sudo firewall-cmd --state >/dev/null 2>&1; do
+    sleep 1
+    fw_elapsed=$((fw_elapsed + 1))
+    if ! systemctl is-active --quiet firewalld; then
+      echo "firewalld systemd unit is not active" >&2
+      sudo systemctl status firewalld --no-pager >&2 || true
+      return 1
+    fi
+    if [[ ${fw_elapsed} -ge ${fw_timeout} ]]; then
+      echo "firewalld did not become ready after ${fw_timeout} seconds" >&2
+      return 1
+    fi
+  done
 }
 
 configure_service_libvirtd() {

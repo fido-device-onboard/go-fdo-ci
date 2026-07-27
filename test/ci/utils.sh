@@ -404,6 +404,20 @@ stop_services() {
   done
 }
 
+# List the RPM package URLs published under a brew build base URL.
+# The URL must point to the version/release directory of the package in
+# brew, which contains an '${arch}/' and a 'noarch/' sub-directory listing
+# the built RPMs. Prints one full RPM URL per line, e.g.:
+#   SOME_RPM_URL=https://${BREW_HOST}/${BREW_PACKAGES_DIR}/${BREW_PACKAGE_NAME}/${BREW_PACKAGE_VERSION}/${BREW_PACKAGE_RELEASE}
+#   rpms_from_brew_url "${SOME_RPM_URL}"
+rpms_from_brew_url() {
+  local brew_base_url="${1%/}" # strip any trailing slash to avoid double slashes below
+  local arch
+  arch=$(uname -m | sed 's/arm64/aarch64/')
+  curl --fail --silent "${brew_base_url}/${arch}/" | grep rpm | sed "s|.*>\(.*\)\.rpm</.*|${brew_base_url}/${arch}/\1.rpm|"
+  curl --fail --silent "${brew_base_url}/noarch/" | grep rpm | sed "s|.*>\(.*\)\.rpm</.*|${brew_base_url}/noarch/\1.rpm|"
+}
+
 fetch_client_repo() {
   [ -d "${client_src_dir}" ] || git clone --single-branch https://github.com/fido-device-onboard/go-fdo-client "${client_src_dir}"
   if [ -v "CLIENT_REF" ]; then
