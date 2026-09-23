@@ -64,6 +64,9 @@ set_hostname manufacturer 127.0.0.1
 set_hostname rendezvous 127.0.0.1
 set_hostname owner 127.0.0.1
 
+fdo_install_component server
+fdo_install_component client
+
 # Verify go-fdo-client is installed
 log_info "Verifying go-fdo-client installation..."
 if ! rpm -q go-fdo-client &>/dev/null; then
@@ -77,12 +80,7 @@ fi
 CLIENT_PKG=$(rpm -q --qf "%{nvr}.%{arch}" go-fdo-client)
 log_info "Installed RPMs: ${CLIENT_PKG}"
 
-# Verify the installed package is from the PR build
-if [[ -n "${PACKIT_COPR_RPMS:-}" && ! "${PACKIT_COPR_RPMS:-}" =~ ${CLIENT_PKG} ]]; then
-    log_error "Package version does not appear to be from PR build"
-    log_error "This suggests the PR artifact was replaced by a stable version"
-    exit 1
-fi
+# Exact PR artifact verification is performed by fdo_install_component.
 
 # Verify go-fdo-server subpackages are installed
 log_info "Verifying go-fdo-server installation..."

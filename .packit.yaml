@@ -1,0 +1,84 @@
+---
+# https://packit.dev/docs/configuration/
+#
+# Tests-only repository: there is no specfile and no copr_build job.
+# PRs run TMT on Testing Farm against published @fedora-iot/fedora-iot
+# packages for the guest chroot (skip_build: true).
+#
+# Product repos (go-fdo-server, go-fdo-client) still build PR RPMs and
+# pull these plans via fmf_url.
+
+upstream_package_name: go-fdo-ci
+issue_repository: https://github.com/fido-device-onboard/go-fdo-ci
+
+jobs:
+  # Fedora: same compose/arch set as go-fdo-server rpm-e2e-fedora and
+  # go-fdo-client e2e-fedora.
+  - job: tests
+    trigger: pull_request
+    identifier: rpm-e2e-fedora
+    skip_build: true
+    env: &published_packages
+      FDO_CLIENT_SOURCE: copr
+      FDO_CLIENT_COPR_PROJECT: "@fedora-iot/fedora-iot"
+      FDO_SERVER_SOURCE: copr
+      FDO_SERVER_COPR_PROJECT: "@fedora-iot/fedora-iot"
+    tmt_plan: test/fmf/plans/rpm-e2e
+    targets: &fedora_targets
+      - fedora-latest-stable-x86_64
+      - fedora-latest-stable-aarch64
+      - fedora-latest-x86_64
+      - fedora-latest-aarch64
+      - fedora-rawhide-x86_64
+      - fedora-rawhide-aarch64
+
+  - job: tests
+    trigger: pull_request
+    identifier: e2e-fedora
+    skip_build: true
+    env: *published_packages
+    tmt_plan: test/fmf/plans/e2e
+    targets: *fedora_targets
+
+  # Bootc: Fedora latest-stable only (product disables rawhide:
+  # https://issues.redhat.com/browse/HMS-9867
+  # https://bugzilla.redhat.com/show_bug.cgi?id=2427945)
+  # No CentOS bootc jobs (same as product Packit).
+  - job: tests
+    trigger: pull_request
+    identifier: bootc-e2e-fedora
+    skip_build: true
+    env: *published_packages
+    tmt_plan: test/fmf/plans/bootc-e2e
+    targets: &fedora_bootc_targets
+      - fedora-latest-stable-x86_64
+      - fedora-latest-stable-aarch64
+
+  - job: tests
+    trigger: pull_request
+    identifier: bootc-onboarding-fedora
+    skip_build: true
+    env: *published_packages
+    tmt_plan: test/fmf/plans/bootc-onboarding
+    targets: *fedora_bootc_targets
+
+  # CentOS Stream: same targets as product rpm-e2e-centos / e2e-centos.
+  - job: tests
+    trigger: pull_request
+    identifier: rpm-e2e-centos
+    skip_build: true
+    env: *published_packages
+    tmt_plan: test/fmf/plans/rpm-e2e
+    targets: &centos_targets
+      - centos-stream-9-x86_64
+      - centos-stream-9-aarch64
+      - centos-stream-10-x86_64
+      - centos-stream-10-aarch64
+
+  - job: tests
+    trigger: pull_request
+    identifier: e2e-centos
+    skip_build: true
+    env: *published_packages
+    tmt_plan: test/fmf/plans/e2e
+    targets: *centos_targets

@@ -75,26 +75,12 @@ sslverify=0
 EOF
   fi
 
-  if [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
-    # Install go-fdo-client from a specific brew build base path.
-    # BREW_CLIENT_RPMS_URL should point to the version/release directory of the package in brew.
-    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-client/1.0.0/4.el10_2.5
-    tee Containerfile >/dev/null <<EOF
+  fdo_write_client_installer fdo-install-client.sh
+  cat > Containerfile <<EOF
 FROM ${base_image_url}
-# --nogpgcheck and sslverify=false are intentional: internal brew servers
-# use self-signed certificates and builds may not be GPG-signed.
-RUN dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_CLIENT_RPMS_URL}" | tr '\n' ' ')
+COPY fdo-install-client.sh /tmp/fdo-install-client.sh
+RUN bash /tmp/fdo-install-client.sh && rm /tmp/fdo-install-client.sh && dnf clean all
 EOF
-  else
-    tee Containerfile >/dev/null <<EOF
-FROM ${base_image_url}
-RUN dnf=\$(readlink \$(command -v dnf)); [ "\${dnf}" = "dnf5" ] || dnf=dnf ; \
-    rpm -q --whatprovides \${dnf}'-command(copr)' &> /dev/null || \${dnf} install -y \${dnf}'-command(copr)'; \
-    \${dnf} copr enable -y '@fedora-iot/fedora-iot'; \
-    \${dnf} install -y go-fdo-client; \
-    \${dnf} copr disable -y @fedora-iot/fedora-iot
-EOF
-  fi
 
   # Append the RHEL repo file into the container image when it was generated.
   if [ -n "${rhel_repo_file}" ]; then
@@ -125,7 +111,7 @@ generate_iso_from_bootc() {
 }
 
 generate_kickstart_iso() {
-  if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
+  if [[ -z "${TMT_TEST_DATA:-}" ]]; then
     sudo dnf install -y lorax
   fi
   rm -fr /var/lib/libvirt/images/install.iso
@@ -155,34 +141,9 @@ echo "admin ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/admin' "${new_ks_file}"
   rm -rf "$isomount"
 }
 
-install_server() {
-  if [ -v "PACKIT_COPR_RPMS" ]; then
-    echo "  - Expected RPMs:  ${PACKIT_COPR_RPMS}"
-  elif [ -n "${BREW_SERVER_RPMS_URL:-}" ]; then
-    # Install from a specific brew build base path.
-    # BREW_SERVER_RPMS_URL should point to the version/release directory of the package in brew.
-    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-server/1.0.1/2.el10_2.3
-    # --nogpgcheck and sslverify=false are intentional: internal brew servers
-    # use self-signed certificates and builds may not be GPG-signed.
-    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_SERVER_RPMS_URL}")
-  else
-    sudo dnf install -y golang make
-    commit="$(git rev-parse --short HEAD)"
-    rpm -q go-fdo-server | grep -q "go-fdo-server.*git${commit}.*" || {
-      make rpm
-      sudo dnf install -y rpmbuild/rpms/{noarch,"$(uname -m)"}/*git"${commit}"*.rpm
-    }
-  fi
-  installed_rpms=$(rpm -q --qf "%{nvr}.%{arch} " ${go_fdo_server_rpms})
-  log_info "Installed Server RPMs:"
-  for i in ${installed_rpms}; do
-    echo "    ⚙ $i"
-  done
-}
-
 install_client() {
   # Install required packages
-  if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
+  if [[ -z "${TMT_TEST_DATA:-}" ]]; then
     log_info "Install required packages"
     local packages=(podman jq gobject-introspection qemu-img qemu-kvm)
     sudo dnf install -y "${packages[@]}"
@@ -202,7 +163,7 @@ install_client() {
 
 configure_service_firewalld() {
   # Install and configure firewall, required by libvirt
-  if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
+  if [[ -z "${TMT_TEST_DATA:-}" ]]; then
     sudo dnf install -y firewalld
   fi
   sudo systemctl start firewalld
@@ -230,7 +191,7 @@ configure_service_firewalld() {
 configure_service_libvirtd() {
   # Libvirt is required before go-fdo-server started as it provides IP address for go-fdo-server
   # Install and configure libvirt
-  if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
+  if [[ -z "${TMT_TEST_DATA:-}" ]]; then
     log_info "Install required packages"
     local packages=(libvirt-client libvirt-daemon-kvm libvirt-daemon)
     sudo dnf install -y "${packages[@]}"
@@ -297,7 +258,7 @@ EOF
 
 run_device_initialization() {
   local guest_ip="192.168.100.50"
-  if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
+  if [[ -z "${TMT_TEST_DATA:-}" ]]; then
     sudo dnf install -y virt-install
   fi
   sudo qemu-img create -f qcow2 "/var/lib/libvirt/images/disk.qcow2" 10G
@@ -405,7 +366,7 @@ remove_files() {
 }
 
 cleanup() {
-  [ ! -v "PACKIT_COPR_RPMS" ] || save_logs
+  [[ -z "${TMT_TEST_DATA:-}" ]] || save_logs
   stop_services
   unset_hostnames
   uninstall_server

@@ -285,6 +285,8 @@ run_test() {
     set_hostname rendezvous 127.0.0.1
     set_hostname owner 127.0.0.1
 
+    fdo_install_component server || exit 1
+    fdo_install_component client || exit 1
     verify_fdo_packages || exit 1
 
     # Generate go-fdo-server certs
