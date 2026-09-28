@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload raw coverage data
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-raw-${{ matrix.type }}-${{ matrix.name }}
           path: ${{ env.COVERAGE_ROOT }}/raw
@@ -140,7 +140,7 @@ jobs:
           path: src/client
 
       - name: Download all raw coverage artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-raw-*
           path: test-coverage/downloaded
@@ -150,29 +150,26 @@ jobs:
         run: |
           mkdir -p test-coverage/raw/server test-coverage/raw/client
           find test-coverage/downloaded -mindepth 1 -maxdepth 1 -type d | while read -r artifact_dir; do
-            artifact_name="$(basename "$artifact_dir")"
             if [ -d "$artifact_dir/server" ]; then
               for f in "$artifact_dir"/server/*; do
-                [ -e "$f" ] && cp "$f" "test-coverage/raw/server/${artifact_name}-$(basename "$f")"
+                [ -e "$f" ] && cp "$f" "test-coverage/raw/server/$(basename "$f")"
               done
             fi
             if [ -d "$artifact_dir/client" ]; then
               for f in "$artifact_dir"/client/*; do
-                [ -e "$f" ] && cp "$f" "test-coverage/raw/client/${artifact_name}-$(basename "$f")"
+                [ -e "$f" ] && cp "$f" "test-coverage/raw/client/$(basename "$f")"
               done
             fi
           done
 
       - name: Merge and report server coverage
-        continue-on-error: true
         run: test/coverage/merge.sh server test-coverage/raw/server "${{ github.workspace }}/src/server" test-coverage | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Merge and report client coverage
-        continue-on-error: true
         run: test/coverage/merge.sh client test-coverage/raw/client "${{ github.workspace }}/src/client" test-coverage | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload merged coverage reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-report
           path: |
