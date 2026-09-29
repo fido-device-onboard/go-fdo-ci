@@ -47,17 +47,12 @@ function get_logs () {
 }
 
 prepare_env() {
-  # Install go-fdo-server and other required packages if run this test script locally.
-  # When run it in packit/tmt, these packages will be installed by tmt.
-  if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
-    sudo dnf install -y golang make openssl curl git podman firewalld libvirt-client libvirt-daemon-kvm libvirt-daemon qemu-img qemu-kvm virt-install lorax jq gobject-introspection rpmbuild go-rpm-macros
-    dnf=$(readlink $(command -v dnf)); [ "${dnf}" = "dnf5" ] || dnf=dnf ; \
-        rpm -q --whatprovides ${dnf}'-command(copr)' &> /dev/null || ${dnf} install -y ${dnf}'-command(copr)'; \
-        ${dnf} copr enable -y '@fedora-iot/fedora-iot'; \
-        ${dnf} install -y go-fdo-server go-fdo-server-manufacturer go-fdo-server-owner go-fdo-server-rendezvous sqlite; \
-        ${dnf} copr disable -y @fedora-iot/fedora-iot
+  # Generic dependencies come from tmt, or are installed for direct execution.
+  if [[ -z "${TMT_TEST_DATA:-}" ]]; then
+    sudo dnf install -y golang make openssl curl git podman firewalld libvirt-client libvirt-daemon-kvm libvirt-daemon qemu-img qemu-kvm virt-install lorax jq gobject-introspection rpmbuild go-rpm-macros sqlite
     [ "${ID}" != "centos" ] || sudo dnf install -y epel-release
   fi
+  fdo_install_component server
   sudo systemctl start firewalld
 
   log_info "Configuring libvirt permissions"
@@ -213,18 +208,12 @@ case "${ID}-${VERSION_ID}" in
     ;;
 esac
 
-# Building bootc container with go-fdo-client installed
-log_info "Building bootc container with go-fdo-client installed"
-if [[ -z "${PACKIT_COPR_PROJECT:-}" ]]; then
-    log_error "PACKIT_COPR_PROJECT is not set. Cannot install go-fdo-client from Copr."
-    exit 1
-fi
-tee Containerfile >/dev/null <<EOF
+# Install and verify the selected client source inside the image.
+fdo_write_client_installer fdo-install-client.sh
+cat > Containerfile <<EOF
 FROM ${base_image_url}
-RUN dnf install -y 'dnf-command(copr)' && \
-    dnf copr enable -y ${PACKIT_COPR_PROJECT} && \
-    dnf install -y go-fdo-client && \
-    dnf clean all
+COPY fdo-install-client.sh /tmp/fdo-install-client.sh
+RUN bash /tmp/fdo-install-client.sh && rm /tmp/fdo-install-client.sh && dnf clean all
 EOF
 podman build --retry=5 --retry-delay=10s -t "fdo-client-bootc:latest" -f Containerfile .
 

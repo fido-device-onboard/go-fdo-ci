@@ -4,6 +4,8 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../ci/utils.sh"
 
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../common/packages.sh"
+
 # PLEASE READ:
 #
 # The FMF tests deploy the FDO servers via RPM packages. These
@@ -205,31 +207,8 @@ configure_service_owner() {
 go_fdo_server_rpms="go-fdo-server go-fdo-server-manufacturer go-fdo-server-owner go-fdo-server-rendezvous"
 go_fdo_client_rpms="go-fdo-client"
 
-install_from_copr() {
-  rpm -q --whatprovides 'dnf-command(copr)' &>/dev/null || sudo dnf install -y 'dnf-command(copr)'
-  dnf copr list | grep 'fedora-iot/fedora-iot' || sudo dnf copr enable -y @fedora-iot/fedora-iot
-  # testing-farm-tag-repository is causing problems with builds see:
-  # https://docs.testing-farm.io/Testing%20Farm/0.1/test-environment.html#disabling-tag-repository
-  sudo dnf install --disablerepo=* --enablerepo=copr:copr.fedorainfracloud.org:group_fedora-iot:fedora-iot -y "$@"
-  sudo dnf copr disable -y @fedora-iot/fedora-iot
-}
-
 install_client() {
-  if [ -v "PACKIT_COPR_RPMS" ]; then
-    : # pre-installed by CI
-  elif [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
-    # Install from a specific brew build base path.
-    # BREW_CLIENT_RPMS_URL should point to the version/release directory of the package in brew.
-    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-client/1.0.0/4.el10_2.5
-    # --nogpgcheck and sslverify=false are intentional: internal brew servers
-    # use self-signed certificates and builds may not be GPG-signed.
-    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_CLIENT_RPMS_URL}")
-  else
-    # If running locally install the client from the COPR repo
-    rpm -q go-fdo-client &>/dev/null || install_from_copr go-fdo-client
-  fi
-  log_info "Installed Client RPM:"
-  echo "    ⚙ $(rpm -q go-fdo-client)"
+  fdo_install_component client
 }
 
 uninstall_client() {
@@ -237,8 +216,6 @@ uninstall_client() {
   # after a successful execution.
   [ -v "PACKIT_COPR_RPMS" ] || {
     sudo dnf remove -y ${go_fdo_client_rpms}
-    # Only remove the COPR repo when it was used for installation
-    [ -n "${BREW_CLIENT_RPMS_URL:-}" ] || sudo dnf copr remove -y @fedora-iot/fedora-iot
   }
 }
 
@@ -254,33 +231,7 @@ run_go_fdo_client() {
 }
 
 install_server() {
-  if [ -v "PACKIT_COPR_RPMS" ]; then
-    log_info "Expected Server RPMs:"
-    for i in ${PACKIT_COPR_RPMS}; do
-      echo "    ⚙ $i"
-    done | sort
-  elif [ -n "${BREW_SERVER_RPMS_URL:-}" ]; then
-    # Install from a specific brew build base path.
-    # BREW_SERVER_RPMS_URL should point to the version/release directory of the package in brew.
-    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-server/1.0.1/2.el10_2.3
-    # --nogpgcheck and sslverify=false are intentional: internal brew servers
-    # use self-signed certificates and builds may not be GPG-signed.
-    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_SERVER_RPMS_URL}")
-  else
-    # If PACKIT_COPR_RPMS is not defined it means we are running the test
-    # locally so we will build and install the RPMs from the *committed* code
-    commit="$(git rev-parse --short HEAD)"
-    rpm -q go-fdo-server | grep -q "go-fdo-server.*git${commit}.*" || {
-      make rpm
-      sudo dnf install -y rpmbuild/rpms/{noarch,"$(uname -m)"}/*git"${commit}"*.rpm
-    }
-  fi
-  # Make sure the RPMS are installed
-  installed_rpms=$(rpm -q --qf "%{nvr}.%{arch} " ${go_fdo_server_rpms})
-  log_info "Installed Server RPMs:"
-  for i in ${installed_rpms}; do
-    echo "    ⚙ $i"
-  done | sort
+  fdo_install_component server
 }
 
 uninstall_server() {
@@ -377,7 +328,7 @@ save_logs() {
   for service in "${services[@]}"; do
     save_service_logs ${service}
   done
-  if [ -v "PACKIT_COPR_RPMS" ]; then
+  if [[ -n "${TMT_TEST_DATA:-}" ]]; then
     log_info "Submitting files to TMT '${base_dir:?}'"
     find "${base_dir:?}" -type f -exec tmt-file-submit -l {} \;
   fi
@@ -625,7 +576,7 @@ cleanup() {
   collect_avcs
   generate_audit2allow_report
   report_avcs
-  [ ! -v "PACKIT_COPR_RPMS" ] || save_logs
+  [[ -z "${TMT_TEST_DATA:-}" ]] || save_logs
   stop_services
   unset_hostnames
   uninstall_server

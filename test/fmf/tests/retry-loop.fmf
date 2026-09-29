@@ -22,11 +22,6 @@ description: |
     Comprehensive validations covering retry loops, delays, and exit conditions.
 test: ./test-retry-loop.sh
 duration: 10m
-require:
-  - go-fdo-client
-  - go-fdo-server-manufacturer
-  - go-fdo-server-rendezvous
-  - go-fdo-server-owner
 tag:
   - e2e
   - coordinated

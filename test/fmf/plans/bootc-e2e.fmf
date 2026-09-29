@@ -1,6 +1,9 @@
 summary: FDO bootc test plan
 description: FDO device onboarding in bootc image
 
+tag:
+  - server
+
 discover:
     how: fmf
     filter: tag:bootc & tag:server
