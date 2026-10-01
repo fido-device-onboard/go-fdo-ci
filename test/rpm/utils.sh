@@ -36,6 +36,14 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../ci/ut
 # the variable `systemd_${service}_drop_in_dir`.  Remember to run
 # `sudo systemctl daemon-reload` after writing the drop-in file.
 
+installation_source="${INSTALLATION_SOURCE:-source}"
+client_installation_source="${CLIENT_INSTALLATION_SOURCE:-${installation_source}}"
+server_installation_source="${SERVER_INSTALLATION_SOURCE:-${installation_source}}"
+
+copr_repo="${COPR_REPO:-@fedora-iot/fedora-iot}"
+client_copr_repo="${CLIENT_COPR_REPO:-${copr_repo}}"
+server_copr_repo="${SERVER_COPR_REPO:-${copr_repo}}"
+
 configs_dir="${base_dir}/configs"
 directories+=("${configs_dir}")
 
@@ -205,13 +213,134 @@ configure_service_owner() {
 go_fdo_server_rpms="go-fdo-server go-fdo-server-manufacturer go-fdo-server-owner go-fdo-server-rendezvous"
 go_fdo_client_rpms="go-fdo-client"
 
-install_from_copr() {
-  rpm -q --whatprovides 'dnf-command(copr)' &>/dev/null || sudo dnf install -y 'dnf-command(copr)'
-  dnf copr list | grep 'fedora-iot/fedora-iot' || sudo dnf copr enable -y @fedora-iot/fedora-iot
+install_rpms_from_source() {
+  local rpms="$*"
+  case "${rpms}" in
+  *go-fdo-client*)
+    fetch_client_repo
+    pushd "${client_src_dir}" >/dev/null
+    commit="$(git rev-parse --short HEAD)"
+    rpm -q go-fdo-client 2>/dev/null | grep -q "go-fdo-client.*git${commit}.*$(rpm -q --eval "%dist")" || {
+      make rpm
+      sudo dnf install -y rpmbuild/rpms/"$(uname -m)"/*git"${commit}".$(uname -m).rpm
+    }
+    popd >/dev/null
+    ;;
+  *go-fdo-server*)
+    fetch_server_repo
+    pushd "${server_src_dir}" >/dev/null
+    commit="$(git rev-parse --short HEAD)"
+    rpm -q go-fdo-server 2>/dev/null | grep -q "go-fdo-server.*git${commit}.*$(rpm -q --eval "%dist")" || {
+      make rpm
+      sudo dnf install -y rpmbuild/rpms/"$(uname -m)"/go-fdo-server-[1-9.]*.git"${commit}"*$(rpm -q --eval "%dist").$(uname -m).rpm \
+        rpmbuild/rpms/noarch/go-fdo-server-{manufacturer,owner,rendezvous}-[1-9.]*.git"${commit}"*$(rpm -q --eval "%dist").noarch.rpm
+    }
+    popd >/dev/null
+    ;;
+  *)
+    log_error "Unsupported rpms to install from source: '${rpms}'"
+    ;;
+  esac
+}
+
+rpm_repo_from_copr_project_spec() {
+  local copr_project_spec="${1}"
+  local slashes="${copr_project_spec//[^\/]/}"
+  local slash_count="${#slashes}"
+  local hub
+  local owner_project
+  local owner
+  local project
+  case ${slash_count} in
+  1)
+    hub="copr.fedorainfracloud.org"
+    owner="${copr_project_spec/\/*/}"
+    project="${copr_project_spec/*\//}"
+    ;;
+  2)
+    hub="${copr_project_spec/\/*/}"
+    owner_project="${copr_project_spec#*/}"
+    owner="${owner_project/\/*/}"
+    project="${owner_project/*\//}"
+    ;;
+  *)
+    log_error "Invalid copr project specification"
+    ;;
+  esac
+  echo "copr:${hub}:${owner/@/group_}:${project}"
+}
+
+install_rpms_from_copr() {
+  local copr="${1}"
+  shift
+  local rpms="$*"
+  local repo
+  repo="$(rpm_repo_from_copr_project_spec "${copr}")"
+  dnf_copr_command="dnf-command(copr)"
+  rpm -q --whatprovides "${dnf_copr_command}" &>/dev/null || sudo dnf install -y "${dnf_copr_command}"
+  dnf copr list | grep -q "${copr}" || sudo dnf copr enable -y "${copr}"
   # testing-farm-tag-repository is causing problems with builds see:
-  # https://docs.testing-farm.io/Testing%20Farm/0.1/test-environment.html#disabling-tag-repository
-  sudo dnf install --disablerepo=* --enablerepo=copr:copr.fedorainfracloud.org:group_fedora-iot:fedora-iot -y "$@"
-  sudo dnf copr disable -y @fedora-iot/fedora-iot
+  # https://docs.testing-farm.io/Testing%20Farm/0.1/test-environment.html#disabling-tag-repository
+  sudo dnf install --disablerepo=* --enablerepo="${repo}" -y ${rpms}
+  sudo dnf copr disable -y "${copr}"
+  sudo dnf copr remove -y "${copr}"
+}
+
+install_rpms_from_compose() {
+  local rpms="$*"
+  source /etc/os-release
+  case "${ID}-${VERSION_ID}" in
+  fedora-*)
+    compose_host="http://kojipkgs.fedoraproject.org"
+    compose_id="latest-Fedora-${VERSION_ID}"
+    compose_streams="${COMPOSE_STREAMS:-Everything}"
+    compose_dir="${VERSION_ID}"
+    [ "${RELEASE_TYPE}" != "development" ] || compose_dir="branched"
+    [ "${REDHAT_SUPPORT_PRODUCT_VERSION}" != "rawhide" ] || {
+      compose_dir="rawhide"
+      compose_id="latest-Fedora-Rawhide"
+    }
+    compose_base_url="${COMPOSE_BASE_URL:-${compose_host}/compose/${compose_dir}/${compose_id}/compose}"
+    ;;
+  centos-*)
+    compose_host="https://composes.stream.centos.org"
+    compose_id="latest-CentOS-Stream"
+    compose_streams="${COMPOSE_STREAMS:-BaseOS AppStream}"
+    compose_base_url="${COMPOSE_BASE_URL:-${compose_host}/stream-${VERSION_ID}/production/${compose_id}/compose}"
+    ;;
+  rhel-*)
+    compose_base_url="${COMPOSE_BASE_URL:-}"
+    ! [ -z "${compose_base_url}" ] || log_error "Compose base URL must be set for RHEL (eg='http://download.host/.../latest-RHEL-Compose/compose/')"
+    compose_streams="${COMPOSE_STREAMS:-BaseOS AppStream}"
+    ;;
+  *)
+    log_error "OS not supported"
+    ;;
+  esac
+  repo_base_name="go-fdo-ci-compose-${ID}-${VERSION_ID}"
+  repo_dir="/etc/yum.repos.d"
+  for stream in ${compose_streams}; do
+    repo_name="${repo_base_name}-${stream}"
+    repo_file="${repo_dir}/${repo_name}.repo"
+    sudo tee "${repo_file}" <<EOF
+[${repo_name}]
+name=${repo_name}
+baseurl=${compose_base_url}/${stream}/$(uname -m)/os/
+enabled=1
+gpgcheck=0
+EOF
+    if [ "${ID}" = "fedora" ] && [ ! -v "COMPOSE_BASE_URL" ] && [ ! -v "COMPOSE_STREAMS" ]; then
+      sudo tee -a "${repo_file}" <<EOF
+[${repo_name}-updates]
+name=${repo_name}-updates
+baseurl=${compose_host}/compose/updates/f${VERSION_ID}-updates/compose/${stream}/$(uname -m)/os/
+enabled=1
+gpgcheck=0
+EOF
+    fi
+  done
+  sudo dnf install --disablerepo=* --enablerepo="${repo_base_name}*" -y ${rpms}
+  sudo rm -f "${repo_dir?}/${repo_base_name:?}"*.repo
 }
 
 # List the RPM package URLs published under a brew build base URL.
@@ -238,32 +367,68 @@ install_rpms_from_brew() {
   sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${brew_url}")
 }
 
+install_rpms_from() {
+  local install_source="${1}"
+  [ -n "$install_source" ] || log_error "Installation source must be provided as first argument"
+  shift
+  local rpms="${*}"
+  case "${install_source}" in
+  "distro")
+    sudo dnf install -y ${rpms}
+    ;;
+  "copr")
+    install_rpms_from_copr "${copr_repo}" "${rpms}"
+    ;;
+  "compose")
+    install_rpms_from_compose "${rpms}"
+    ;;
+  "source")
+    install_rpms_from_source "${rpms}"
+    ;;
+  *)
+    log_error "Unsupported installation source: '${install_source}'"
+    ;;
+  esac
+}
+
 install_client() {
-  if [ -v "PACKIT_COPR_RPMS" ]; then
-    : # pre-installed by CI
-  elif [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
+  if [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
     # Install from a specific brew build base path.
     # BREW_CLIENT_RPMS_URL should point to the version/release directory of the package in brew.
     # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-client/1.0.0/4.el10_2.5
-    # --nogpgcheck and sslverify=false are intentional: internal brew servers
-    # use self-signed certificates and builds may not be GPG-signed.
-    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_CLIENT_RPMS_URL}")
+    install_rpms_from_brew "${BREW_CLIENT_RPMS_URL}"
+  elif [ -v "PACKIT_COPR_RPMS" ] && [ -v "PACKIT_COPR_PROJECT" ]; then
+    # If PACKIT_COPR_RPMS is defined it means that all the rpms were built and installed already by packit
+    if [[ "${PACKIT_COPR_RPMS}" =~ go-fdo-client ]]; then
+      # If PACKIT_COPR_RPMS is defined and contains the 'go-fdo-client'
+      # package it means we are running the TMT tests in the client repo
+      log_info "Expected Go FDO Client RPM:"
+      for i in ${PACKIT_COPR_RPMS}; do
+        log "  ⚙ $i\n" 2>&1
+      done | sort
+      install_rpms_from_copr "${PACKIT_COPR_PROJECT}" "${PACKIT_COPR_RPMS}"
+    else
+      # If we are running TMT tests but in server's repo we install
+      # the client from the fedora-iot copr
+      install_rpms_from_copr "${client_copr_repo}" "${go_fdo_client_rpms}"
+    fi
   else
-    # If running locally install the client from the COPR repo
-    rpm -q go-fdo-client &>/dev/null || install_from_copr go-fdo-client
+    # If PACKIT_COPR_RPMS is not defined it means we are running the test
+    # locally or as a github action
+    if [ "${client_installation_source}" = "copr" ]; then
+      install_rpms_from_copr "${client_copr_repo}" "${go_fdo_client_rpms}"
+    else
+      install_rpms_from "${client_installation_source}" "${go_fdo_client_rpms}"
+    fi
   fi
-  log_info "Installed Client RPM:"
-  echo "    ⚙ $(rpm -q go-fdo-client)"
+  log_info "Installed Go FDO Client RPM:"
+  log "  ⚙ $(rpm -q ${go_fdo_client_rpms})\n"
 }
 
 uninstall_client() {
   # When running a test locally we remove the client package
   # after a successful execution.
-  [ -v "PACKIT_COPR_RPMS" ] || {
-    sudo dnf remove -y ${go_fdo_client_rpms}
-    # Only remove the COPR repo when it was used for installation
-    [ -n "${BREW_CLIENT_RPMS_URL:-}" ] || sudo dnf copr remove -y @fedora-iot/fedora-iot
-  }
+  [ -v "PACKIT_COPR_RPMS" ] || sudo dnf remove -y ${go_fdo_client_rpms}
 }
 
 run_go_fdo_client() {
@@ -278,32 +443,42 @@ run_go_fdo_client() {
 }
 
 install_server() {
-  if [ -v "PACKIT_COPR_RPMS" ]; then
-    log_info "Expected Server RPMs:"
-    for i in ${PACKIT_COPR_RPMS}; do
-      echo "    ⚙ $i"
-    done | sort
-  elif [ -n "${BREW_SERVER_RPMS_URL:-}" ]; then
+  # Install runtime dependencies
+  rpm -q openssl &>/dev/null || sudo dnf install -y openssl
+  if [ -n "${BREW_SERVER_RPMS_URL:-}" ]; then
     # Install from a specific brew build base path.
     # BREW_SERVER_RPMS_URL should point to the version/release directory of the package in brew.
     # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-server/1.0.1/2.el10_2.3
-    # --nogpgcheck and sslverify=false are intentional: internal brew servers
-    # use self-signed certificates and builds may not be GPG-signed.
-    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_SERVER_RPMS_URL}")
+    install_rpms_from_brew "${BREW_SERVER_RPMS_URL}"
+  elif [ -v "PACKIT_COPR_RPMS" ] && [ -v "PACKIT_COPR_PROJECT" ]; then
+    # If PACKIT_COPR_RPMS is defined it means that all the rpms were built and installed already by packit
+    if [[ "${PACKIT_COPR_RPMS}" =~ go-fdo-server ]]; then
+      # If PACKIT_COPR_RPMS is defined and contains the 'go-fdo-server'
+      # package it means we are running the TMT tests in the server repo
+      log_info "Expected Go FDO Server RPMs:"
+      for i in ${PACKIT_COPR_RPMS}; do
+        log "  ⚙ $i\n" 2>&1
+      done | sort
+      install_rpms_from_copr "${PACKIT_COPR_PROJECT}" "${PACKIT_COPR_RPMS}"
+    else
+      # If we are running TMT tests but in client's repo we install
+      # the server from the fedora-iot copr
+      install_rpms_from_copr "${server_copr_repo}" "${go_fdo_server_rpms}"
+    fi
   else
     # If PACKIT_COPR_RPMS is not defined it means we are running the test
-    # locally so we will build and install the RPMs from the *committed* code
-    commit="$(git rev-parse --short HEAD)"
-    rpm -q go-fdo-server | grep -q "go-fdo-server.*git${commit}.*" || {
-      make rpm
-      sudo dnf install -y rpmbuild/rpms/{noarch,"$(uname -m)"}/*git"${commit}"*.rpm
-    }
+    # locally
+    if [ "${server_installation_source}" = "copr" ]; then
+      install_rpms_from_copr "${server_copr_repo}" "${go_fdo_server_rpms}"
+    else
+      install_rpms_from "${server_installation_source}" "${go_fdo_server_rpms}"
+    fi
   fi
   # Make sure the RPMS are installed
   installed_rpms=$(rpm -q --qf "%{nvr}.%{arch} " ${go_fdo_server_rpms})
-  log_info "Installed Server RPMs:"
+  log_info "Installed Go FDO Server RPMs:"
   for i in ${installed_rpms}; do
-    echo "    ⚙ $i"
+    log "  ⚙ $i\n" 2>&1
   done | sort
 }
 
