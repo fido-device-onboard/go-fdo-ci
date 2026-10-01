@@ -214,6 +214,30 @@ install_from_copr() {
   sudo dnf copr disable -y @fedora-iot/fedora-iot
 }
 
+# List the RPM package URLs published under a brew build base URL.
+# The URL must point to the version/release directory of the package in
+# brew, which contains an '${arch}/' and a 'noarch/' sub-directory listing
+# the built RPMs. Prints one full RPM URL per line, e.g.:
+#   SOME_RPM_URL=https://${BREW_HOST}/${BREW_PACKAGES_DIR}/${BREW_PACKAGE_NAME}/${BREW_PACKAGE_VERSION}/${BREW_PACKAGE_RELEASE}
+#   rpms_from_brew_url "${SOME_RPM_URL}"
+rpms_from_brew_url() {
+  local brew_base_url="${1%/}" # strip any trailing slash to avoid double slashes below
+  local arch
+  arch=$(uname -m | sed 's/arm64/aarch64/')
+  # --insecure is intentional: internal brew servers use self-signed
+  # certificates, same as the --setopt=sslverify=false used when installing
+  # the RPMs these URLs point to.
+  curl --fail --silent --insecure "${brew_base_url}/${arch}/" | grep rpm | sed "s|.*>\(.*\)\.rpm</.*|${brew_base_url}/${arch}/\1.rpm|"
+  curl --fail --silent --insecure "${brew_base_url}/noarch/" | grep rpm | sed "s|.*>\(.*\)\.rpm</.*|${brew_base_url}/noarch/\1.rpm|"
+}
+
+install_rpms_from_brew() {
+  local brew_url="$1"
+  # Please note that --nogpgcheck and sslverify=false are intentional:
+  # internal brew servers use self-signed certificates and builds may not be GPG-signed.
+  sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${brew_url}")
+}
+
 install_client() {
   if [ -v "PACKIT_COPR_RPMS" ]; then
     : # pre-installed by CI
