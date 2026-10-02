@@ -1,0 +1,195 @@
+name: Coordinated Testing
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  trigger:
+    name: "Parse /ci test and trigger E2E"
+    if: >-
+      github.event.issue.pull_request
+      && startsWith(github.event.comment.body, '/ci test')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check commenter permission
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        id: check-permission
+        with:
+          script: |
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login,
+            });
+            const allowed = ['admin', 'write'].includes(data.permission);
+            if (!allowed) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: `❌ \`/ci test\` requires write permission. User \`${context.payload.comment.user.login}\` has \`${data.permission}\` permission.`,
+              });
+              core.setFailed(`User ${context.payload.comment.user.login} does not have write permission`);
+            }
+
+      - name: Add reaction to comment
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'eyes',
+            });
+
+      - name: Get PR head ref
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        id: pr-ref
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            });
+            core.setOutput('ref', pr.head.sha);
+
+      - name: Parse /ci test arguments
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        shell: bash
+        run: |
+          allowed_vars=(
+            SERVER_REF
+            CLIENT_REF
+          )
+
+          is_allowed() {
+            local var="$1"
+            for allowed in "${allowed_vars[@]}"; do
+              [[ "${var}" == "${allowed}" ]] && return 0
+            done
+            return 1
+          }
+
+          # Validate that the command is exactly '/ci test'
+          first_two=$(echo "${COMMENT_BODY}" | tr -s '[:space:]' '\n' | head -2 | tr '\n' ' ' | sed 's/ $//')
+          if [[ "${first_two}" != "/ci test" ]]; then
+            echo "::error::Invalid command: expected '/ci test', got '${first_two}'"
+            exit 1
+          fi
+
+          declare -A env_vars
+          ci_ref=""
+
+          # Use tr instead of xargs to avoid silent failures on unmatched quotes
+          while IFS= read -r token; do
+            [[ -z "${token}" ]] && continue
+            if [[ "${token}" == "--commit" ]]; then
+              read -r next_token || true
+              ci_ref="${next_token}"
+            elif [[ "${token}" == "--env" ]]; then
+              read -r next_token || true
+              if [[ "${next_token}" == *=* ]]; then
+                key="${next_token%%=*}"
+                value="${next_token#*=}"
+                if is_allowed "${key}"; then
+                  env_vars["${key}"]="${value}"
+                else
+                  echo "::warning::Ignoring unknown variable: ${key}"
+                fi
+              else
+                echo "::warning::Ignoring --env without KEY=VALUE: ${next_token}"
+              fi
+            fi
+          done < <(echo "${COMMENT_BODY}" | tr -s '[:space:]' '\n')
+
+          # Validate ref values: reject shell metacharacters
+          validate_ref() {
+            local name="$1" value="$2"
+            if [[ -n "${value}" ]] && ! [[ "${value}" =~ ^[a-zA-Z0-9_./@-]+$ ]]; then
+              echo "::error::Invalid ${name} value: contains disallowed characters"
+              exit 1
+            fi
+          }
+
+          validate_ref "CI_REF" "${ci_ref}"
+          for key in "${!env_vars[@]}"; do
+            validate_ref "${key}" "${env_vars[${key}]}"
+          done
+
+          echo "CI_REF=${ci_ref}" >> "${GITHUB_OUTPUT}"
+          for key in "${allowed_vars[@]}"; do
+            value="${env_vars[${key}]:-}"
+            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
+          done
+
+      - name: Trigger E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.RETEST_WORKFLOW_TOKEN }}
+          PARSED_CI_REF: ${{ steps.parse.outputs.CI_REF }}
+          PR_HEAD_REF: ${{ steps.pr-ref.outputs.ref }}
+          PARSED_SERVER_REF: ${{ steps.parse.outputs.SERVER_REF }}
+          PARSED_CLIENT_REF: ${{ steps.parse.outputs.CLIENT_REF }}
+        run: |
+          args=()
+
+          add_input() {
+            local key="$1" value="$2"
+            if [[ -n "${value}" ]]; then
+              args+=(-f "${key}=${value}")
+            fi
+          }
+
+          add_input CI_REF "${PARSED_CI_REF:-${PR_HEAD_REF}}"
+          add_input SERVER_REF "${PARSED_SERVER_REF}"
+          add_input CLIENT_REF "${PARSED_CLIENT_REF}"
+
+          gh workflow run e2e.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            "${args[@]}"
+
+      - name: Post workflow link
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            await new Promise(r => setTimeout(r, 5000));
+
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'e2e.yml',
+              event: 'workflow_dispatch',
+              per_page: 1,
+            });
+
+            const runUrl = runs.data.workflow_runs[0]?.html_url
+              || `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/e2e.yml`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `🚀 Coordinated E2E test triggered: [View workflow run](${runUrl})`,
+            });
+
+      - name: Post failure notice
+        if: failure()
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `❌ \`/ci test\` failed: [View workflow run](${runUrl})`,
+            });
