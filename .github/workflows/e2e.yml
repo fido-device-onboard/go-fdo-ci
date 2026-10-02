@@ -9,13 +9,13 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      go-fdo-ci-ref:
+      CI_REF:
         description: "go-fdo-ci ref (branch, tag, or refs/pull/N/head)"
         default: "main"
-      go-fdo-server-ref:
+      SERVER_REF:
         description: "go-fdo-server ref (branch, tag, or refs/pull/N/head)"
         default: "main"
-      go-fdo-client-ref:
+      CLIENT_REF:
         description: "go-fdo-client ref (branch, tag, or refs/pull/N/head)"
         default: "main"
 
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: fido-device-onboard/go-fdo-ci
-          ref: ${{ inputs.go-fdo-ci-ref || github.ref }}
+          ref: ${{ inputs.CI_REF || github.ref }}
       - id: generate
         # Build the matrix dynamically from the test files on disk.
         # jq is pre-installed on GitHub runners.
@@ -64,23 +64,12 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: fido-device-onboard/go-fdo-ci
-          ref: ${{ inputs.go-fdo-ci-ref || github.ref }}
-
-      - name: Check out go-fdo-server
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: fido-device-onboard/go-fdo-server
-          ref: ${{ inputs.go-fdo-server-ref || 'main' }}
-          path: src/server
-
-      - name: Check out go-fdo-client
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: fido-device-onboard/go-fdo-client
-          ref: ${{ inputs.go-fdo-client-ref || 'main' }}
-          path: src/client
+          ref: ${{ inputs.CI_REF || github.ref }}
 
       - name: ${{ matrix.name }}
+        env:
+          SERVER_REF: ${{ inputs.SERVER_REF || 'main' }}
+          CLIENT_REF: ${{ inputs.CLIENT_REF || 'main' }}
         run: |
           source ${{ matrix.dir }}/${{ matrix.test }}
           run_test
