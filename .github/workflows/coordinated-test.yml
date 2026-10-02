@@ -1,0 +1,162 @@
+name: Coordinated Testing
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  trigger:
+    name: "Parse /ci test and trigger E2E"
+    if: >-
+      github.event.issue.pull_request
+      && startsWith(github.event.comment.body, '/ci test')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check commenter permission
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        id: check-permission
+        with:
+          script: |
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login,
+            });
+            const allowed = ['admin', 'write'].includes(data.permission);
+            if (!allowed) {
+              core.setFailed(`User ${context.payload.comment.user.login} does not have write permission`);
+            }
+
+      - name: Add reaction to comment
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'eyes',
+            });
+
+      - name: Get PR head ref
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        id: pr-ref
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            });
+            core.setOutput('ref', pr.head.sha);
+
+      - name: Parse /ci test arguments
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        shell: bash
+        run: |
+          allowed_vars=(
+            SERVER_REF
+            CLIENT_REF
+            INSTALLATION_SOURCE
+            SERVER_INSTALLATION_SOURCE
+            CLIENT_INSTALLATION_SOURCE
+            COPR_REPO
+            CLIENT_COPR_REPO
+            SERVER_COPR_REPO
+            COMPOSE_BASE_URL
+            COMPOSE_STREAMS
+            DEBUG
+          )
+
+          is_allowed() {
+            local var="$1"
+            for allowed in "${allowed_vars[@]}"; do
+              [[ "${var}" == "${allowed}" ]] && return 0
+            done
+            return 1
+          }
+
+          declare -A env_vars
+          ci_ref=""
+
+          while IFS= read -r token; do
+            if [[ "${token}" == "--commit" ]]; then
+              read -r next_token || true
+              ci_ref="${next_token}"
+            elif [[ "${token}" == "--env" ]]; then
+              read -r next_token || true
+              if [[ "${next_token}" == *=* ]]; then
+                key="${next_token%%=*}"
+                value="${next_token#*=}"
+                if is_allowed "${key}"; then
+                  env_vars["${key}"]="${value}"
+                else
+                  echo "::warning::Ignoring unknown variable: ${key}"
+                fi
+              else
+                echo "::warning::Ignoring --env without KEY=VALUE: ${next_token}"
+              fi
+            fi
+          done < <(xargs -n1 <<< "${COMMENT_BODY}")
+
+          echo "CI_REF=${ci_ref}" >> "${GITHUB_OUTPUT}"
+          for key in "${allowed_vars[@]}"; do
+            value="${env_vars[${key}]:-}"
+            echo "${key}=${value}" >> "${GITHUB_OUTPUT}"
+          done
+
+      - name: Trigger E2E workflow
+        env:
+          GH_TOKEN: ${{ secrets.RETEST_WORKFLOW_TOKEN }}
+        run: |
+          args=()
+
+          add_input() {
+            local key="$1" value="$2"
+            if [[ -n "${value}" ]]; then
+              args+=(-f "${key}=${value}")
+            fi
+          }
+
+          add_input CI_REF "${{ steps.parse.outputs.CI_REF || steps.pr-ref.outputs.ref }}"
+          add_input SERVER_REF "${{ steps.parse.outputs.SERVER_REF }}"
+          add_input CLIENT_REF "${{ steps.parse.outputs.CLIENT_REF }}"
+          add_input INSTALLATION_SOURCE "${{ steps.parse.outputs.INSTALLATION_SOURCE }}"
+          add_input SERVER_INSTALLATION_SOURCE "${{ steps.parse.outputs.SERVER_INSTALLATION_SOURCE }}"
+          add_input CLIENT_INSTALLATION_SOURCE "${{ steps.parse.outputs.CLIENT_INSTALLATION_SOURCE }}"
+          add_input COPR_REPO "${{ steps.parse.outputs.COPR_REPO }}"
+          add_input CLIENT_COPR_REPO "${{ steps.parse.outputs.CLIENT_COPR_REPO }}"
+          add_input SERVER_COPR_REPO "${{ steps.parse.outputs.SERVER_COPR_REPO }}"
+          add_input COMPOSE_BASE_URL "${{ steps.parse.outputs.COMPOSE_BASE_URL }}"
+          add_input COMPOSE_STREAMS "${{ steps.parse.outputs.COMPOSE_STREAMS }}"
+          add_input DEBUG "${{ steps.parse.outputs.DEBUG }}"
+
+          gh workflow run e2e.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            "${args[@]}"
+
+      - name: Post workflow link
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            await new Promise(r => setTimeout(r, 2000));
+
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'e2e.yml',
+              per_page: 1,
+            });
+
+            const runUrl = runs.data.workflow_runs[0]?.html_url
+              || `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/workflows/e2e.yml`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `🚀 Coordinated E2E test triggered: [View workflow run](${runUrl})`,
+            });
