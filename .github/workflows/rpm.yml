@@ -1,0 +1,81 @@
+name: RPM Testing
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      go-fdo-ci-ref:
+        description: "go-fdo-ci ref (branch, tag, or refs/pull/N/head)"
+        default: "main"
+      go-fdo-server-ref:
+        description: "go-fdo-server ref (branch, tag, or refs/pull/N/head)"
+        default: "main"
+      go-fdo-client-ref:
+        description: "go-fdo-client ref (branch, tag, or refs/pull/N/head)"
+        default: "main"
+
+jobs:
+  setup:
+    name: "Setup test matrix"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+    steps:
+      - name: Check out go-fdo-ci
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: fido-device-onboard/go-fdo-ci
+          ref: ${{ inputs.go-fdo-ci-ref || github.ref }}
+      - id: generate
+        # Build the matrix dynamically from the test files on disk.
+        # jq is pre-installed on GitHub runners.
+        run: |
+          test="test-installation.sh"
+          dir="test/rpm"
+          matrix=$(
+            for container in quay.io/fedora/fedora:{latest,rawhide} quay.io/centos/centos:stream10; do
+              for installation_source in source distro copr compose ; do
+               jq -n --arg container "${container}" --arg test "${test}" --arg installation_source "${installation_source}" --arg dir "${dir}" --arg name "Test RPM installation from '${installation_source}' (${container/*\/})" \
+                '{name: $name, container: $container, dir: $dir, test: $test, installation_source: $installation_source}'
+              done
+            done | jq -cs '{include: .}'
+          )
+          echo "${matrix}" | jq .
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+
+  rpm:
+    name: "${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    container:
+      image: "${{ matrix.container }}"
+      env:
+        INSTALLATION_SOURCE: "${{ matrix.installation_source }}"
+        SERVER_REF: "${{ inputs.go-fdo-server-ref || 'main' }}"
+        CLIENT_REF: "${{ inputs.go-fdo-client-ref || 'main' }}"
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    steps:
+      - name: Check out go-fdo-ci
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: fido-device-onboard/go-fdo-ci
+          ref: ${{ inputs.go-fdo-ci-ref || github.ref }}
+
+      - name: Install dependencies
+        run: |
+          . /etc/os-release
+          dnf install -y sudo
+          [ "$ID" != "centos" ] || dnf install -y epel-release
+          [ "${INSTALLATION_SOURCE}" != "source" ] || dnf install -y git golang go-vendor-tools python3-tomlkit askalono-cli rpmdevtools go-rpm-macros
+
+      - name: ${{ matrix.name }}
+        run: |
+          source ${{ matrix.dir }}/${{ matrix.test }}
+          run_test
