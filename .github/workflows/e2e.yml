@@ -9,15 +9,36 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      go-fdo-ci-ref:
+      CI_REF:
         description: "go-fdo-ci ref (branch, tag, or refs/pull/N/head)"
         default: "main"
-      go-fdo-server-ref:
+      SERVER_REF:
         description: "go-fdo-server ref (branch, tag, or refs/pull/N/head)"
         default: "main"
-      go-fdo-client-ref:
+      CLIENT_REF:
         description: "go-fdo-client ref (branch, tag, or refs/pull/N/head)"
         default: "main"
+      INSTALLATION_SOURCE:
+        description: "Installation source for both server and client (source, copr, distro, compose)"
+        default: "source"
+      SERVER_INSTALLATION_SOURCE:
+        description: "Override installation source for server only"
+      CLIENT_INSTALLATION_SOURCE:
+        description: "Override installation source for client only"
+      COPR_REPO:
+        description: "COPR repository for 'copr' installation source"
+        default: "@fedora-iot/fedora-iot"
+      CLIENT_COPR_REPO:
+        description: "Override COPR repository for go-fdo-client only"
+      SERVER_COPR_REPO:
+        description: "Override COPR repository for go-fdo-server only"
+      COMPOSE_BASE_URL:
+        description: "Base URL for 'compose' installation source"
+      COMPOSE_STREAMS:
+        description: "Compose streams to enable (space-separated, e.g. 'BaseOS AppStream')"
+      DEBUG:
+        description: "Enable verbose debug logging (0 or 1)"
+        default: "0"
 
 jobs:
   setup:
@@ -30,7 +51,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: fido-device-onboard/go-fdo-ci
-          ref: ${{ inputs.go-fdo-ci-ref || github.ref }}
+          ref: ${{ inputs.CI_REF || github.ref }}
       - id: generate
         # Build the matrix dynamically from the test files on disk.
         # jq is pre-installed on GitHub runners.
@@ -64,23 +85,21 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: fido-device-onboard/go-fdo-ci
-          ref: ${{ inputs.go-fdo-ci-ref || github.ref }}
-
-      - name: Check out go-fdo-server
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: fido-device-onboard/go-fdo-server
-          ref: ${{ inputs.go-fdo-server-ref || 'main' }}
-          path: src/server
-
-      - name: Check out go-fdo-client
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: fido-device-onboard/go-fdo-client
-          ref: ${{ inputs.go-fdo-client-ref || 'main' }}
-          path: src/client
+          ref: ${{ inputs.CI_REF || github.ref }}
 
       - name: ${{ matrix.name }}
+        env:
+          SERVER_REF: ${{ inputs.SERVER_REF || "main" }}
+          CLIENT_REF: ${{ inputs.CLIENT_REF || "main" }}
+          INSTALLATION_SOURCE: ${{ inputs.INSTALLATION_SOURCE || "source" }}
+          SERVER_INSTALLATION_SOURCE: ${{ inputs.SERVER_INSTALLATION_SOURCE }}
+          CLIENT_INSTALLATION_SOURCE: ${{ inputs.CLIENT_INSTALLATION_SOURCE }}
+          COPR_REPO: ${{ inputs.COPR_REPO }}
+          CLIENT_COPR_REPO: ${{ inputs.CLIENT_COPR_REPO }}
+          SERVER_COPR_REPO: ${{ inputs.SERVER_COPR_REPO }}
+          COMPOSE_BASE_URL: ${{ inputs.COMPOSE_BASE_URL }}
+          COMPOSE_STREAMS: ${{ inputs.COMPOSE_STREAMS }}
+          DEBUG: ${{ inputs.DEBUG }}
         run: |
           source ${{ matrix.dir }}/${{ matrix.test }}
           run_test
