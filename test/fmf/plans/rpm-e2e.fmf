@@ -17,7 +17,7 @@ prepare:
       dnf copr list | grep 'fedora-iot/fedora-iot' || {
         . /etc/os-release
         if [ "${ID}" = "centos" ]; then
-          dnf copr enable -y '@fedora-iot/fedora-iot' ${ID}-stream-${ID_VERSION}
+          dnf copr enable -y '@fedora-iot/fedora-iot' ${ID}-stream-${VERSION_ID}-$(uname -m)
         else
           dnf copr enable -y '@fedora-iot/fedora-iot'
         fi

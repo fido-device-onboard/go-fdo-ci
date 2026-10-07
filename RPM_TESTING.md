@@ -45,11 +45,17 @@ The repository is controlled by the `COPR_REPO` environment variable.
 | `COPR_REPO`       | Default Copr project for both components | `@fedora-iot/fedora-iot`   |
 | `CLIENT_COPR_REPO`| Override Copr project for go-fdo-client  | `$COPR_REPO`              |
 | `SERVER_COPR_REPO`| Override Copr project for go-fdo-server  | `$COPR_REPO`              |
+| `COPR_CHROOT`     | Chroot to enable (`NAME-RELEASE-ARCH`)   | `centos-stream-$VERSION_ID-$(uname -m)` on CentOS Stream, auto-detected by dnf elsewhere |
 
 The `COPR_REPO` value supports two formats:
 
 - **1 slash** — Fedora Copr: `owner/project` (e.g. `@fedora-iot/fedora-iot`)
 - **2 slashes** — Custom hub: `hub/owner/project` (e.g. `copr.example.com/@group/project`)
+
+On CentOS Stream the chroot has to be named explicitly: dnf's autodetection
+derives `centos-$VERSION_ID` from `/etc/os-release` and therefore misses the
+`centos-stream-*` chroots the packages are built for. Set `COPR_CHROOT` to
+override the chroot for any system.
 
 ```bash
 # Install from the default Copr
