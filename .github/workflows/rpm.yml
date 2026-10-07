@@ -43,6 +43,10 @@ jobs:
                jq -n --arg container "${container}" --arg test "${test}" --arg installation_source "${installation_source}" --arg dir "${dir}" --arg name "Test RPM installation from '${installation_source}' (${container/*\/})" \
                 '{name: $name, container: $container, dir: $dir, test: $test, installation_source: $installation_source}'
               done
+              # The Copr chroot depends on the distribution, not on the
+              # installation source, so run it once per container.
+              jq -n --arg container "${container}" --arg test "test-copr-chroot.sh" --arg installation_source "copr" --arg dir "${dir}" --arg name "Test Copr chroot selection (${container/*\/})" \
+                '{name: $name, container: $container, dir: $dir, test: $test, installation_source: $installation_source}'
             done | jq -cs '{include: .}'
           )
           echo "${matrix}" | jq .

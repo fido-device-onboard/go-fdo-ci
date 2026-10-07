@@ -55,7 +55,8 @@ The `COPR_REPO` value supports two formats:
 On CentOS Stream the chroot has to be named explicitly: dnf's autodetection
 derives `centos-$VERSION_ID` from `/etc/os-release` and therefore misses the
 `centos-stream-*` chroots the packages are built for. Set `COPR_CHROOT` to
-override the chroot for any system.
+override the chroot for any system. `test/rpm/test-copr-chroot.sh` guards
+this behaviour.
 
 ```bash
 # Install from the default Copr
