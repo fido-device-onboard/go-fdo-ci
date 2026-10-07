@@ -270,20 +270,59 @@ rpm_repo_from_copr_project_spec() {
   echo "copr:${hub}:${owner/@/group_}:${project}"
 }
 
+# Print the copr chroot (NAME-RELEASE-ARCH) to enable on the system
+# described by the given os-release file (/etc/os-release by default),
+# or nothing to let the dnf copr plugin detect it. COPR_CHROOT takes
+# precedence over both.
+#
+# The plugin builds the chroot name out of ID/VERSION_ID from
+# /etc/os-release, so on CentOS Stream it looks for 'centos-${VERSION_ID}'
+# (falling back to 'epel-${VERSION_ID}') and never matches the
+# 'centos-stream-*' chroots the projects are actually built for. Name
+# those explicitly and let the plugin guess everywhere else.
+#
+# The os-release file is a parameter so that the mapping can be tested
+# for distributions other than the running one.
+copr_chroot_for_system() {
+  local os_release="${1:-/etc/os-release}"
+  [ -z "${COPR_CHROOT:-}" ] || {
+    echo "${COPR_CHROOT}"
+    return 0
+  }
+  source "${os_release}"
+  case "${ID}" in
+  centos)
+    echo "centos-stream-${VERSION_ID}-$(uname -m)"
+    ;;
+  esac
+}
+
+enable_copr_repo() {
+  local copr="${1}"
+  local chroot
+  chroot="$(copr_chroot_for_system)"
+  dnf_copr_command="dnf-command(copr)"
+  rpm -q --whatprovides "${dnf_copr_command}" &>/dev/null || sudo dnf install -y "${dnf_copr_command}"
+  dnf copr list | grep -q "${copr}" || sudo dnf copr enable -y "${copr}" ${chroot:+"${chroot}"}
+}
+
+disable_copr_repo() {
+  local copr="${1}"
+  sudo dnf copr disable -y "${copr}"
+  sudo dnf copr remove -y "${copr}"
+}
+
 install_rpms_from_copr() {
   local copr="${1}"
   shift
   local rpms="$*"
   local repo
   repo="$(rpm_repo_from_copr_project_spec "${copr}")"
-  dnf_copr_command="dnf-command(copr)"
-  rpm -q --whatprovides "${dnf_copr_command}" &>/dev/null || sudo dnf install -y "${dnf_copr_command}"
-  dnf copr list | grep -q "${copr}" || sudo dnf copr enable -y "${copr}"
+  enable_copr_repo "${copr}"
   # testing-farm-tag-repository is causing problems with builds see:
   # https://docs.testing-farm.io/Testing%20Farm/0.1/test-environment.html#disabling-tag-repository
   sudo dnf install --disablerepo=* --enablerepo="${repo}" -y ${rpms}
-  sudo dnf copr disable -y "${copr}"
-  sudo dnf copr remove -y "${copr}"
+  disable_copr_repo "${copr}"
 }
 
 install_rpms_from_compose() {
