@@ -39,7 +39,7 @@ prepare:
       - firewalld
       - lorax
       - gobject-introspection
-      - rpmbuild
+      - rpm-build
       - go-rpm-macros
 
 execute:
