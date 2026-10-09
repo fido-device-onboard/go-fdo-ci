@@ -155,31 +155,6 @@ echo "admin ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/admin' "${new_ks_file}"
   rm -rf "$isomount"
 }
 
-install_server() {
-  if [ -v "PACKIT_COPR_RPMS" ]; then
-    echo "  - Expected RPMs:  ${PACKIT_COPR_RPMS}"
-  elif [ -n "${BREW_SERVER_RPMS_URL:-}" ]; then
-    # Install from a specific brew build base path.
-    # BREW_SERVER_RPMS_URL should point to the version/release directory of the package in brew.
-    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-server/1.0.1/2.el10_2.3
-    # --nogpgcheck and sslverify=false are intentional: internal brew servers
-    # use self-signed certificates and builds may not be GPG-signed.
-    sudo dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_SERVER_RPMS_URL}")
-  else
-    sudo dnf install -y golang make
-    commit="$(git rev-parse --short HEAD)"
-    rpm -q go-fdo-server | grep -q "go-fdo-server.*git${commit}.*" || {
-      make rpm
-      sudo dnf install -y rpmbuild/rpms/{noarch,"$(uname -m)"}/*git"${commit}"*.rpm
-    }
-  fi
-  installed_rpms=$(rpm -q --qf "%{nvr}.%{arch} " ${go_fdo_server_rpms})
-  log_info "Installed Server RPMs:"
-  for i in ${installed_rpms}; do
-    echo "    ⚙ $i"
-  done
-}
-
 install_client() {
   # Install required packages
   if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
