@@ -12,12 +12,6 @@ framework: shell
 
 duration: 60m
 
-require:
-  - go-fdo-server
-  - go-fdo-server-manufacturer
-  - go-fdo-server-owner
-  - go-fdo-server-rendezvous
-
 tag:
   - fdo
   - e2e
