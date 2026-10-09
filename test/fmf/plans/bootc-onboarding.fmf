@@ -14,26 +14,33 @@ provision:
         memory: ">= 6 GB"
 
 prepare:
+  - how: shell
+    script: |
+      . /etc/os-release
+      if [ "${ID}" = "centos" ]; then
+        dnf install -y epel-release
+      fi
 
-    - how: install
-      package:
-        - golang
-        - make
-        - openssl
-        - curl
-        - git
-        - jq
-        - podman
-        - qemu-img
-        - qemu-kvm
-        - libvirt-client
-        - libvirt-daemon-kvm
-        - virt-install
-        - firewalld
-        - lorax
-        - gobject-introspection
-        - rpmbuild
-        - go-rpm-macros
+  - how: install
+    package:
+      - golang
+      - make
+      - openssl
+      - curl
+      - git
+      - jq
+      - npm
+      - podman
+      - qemu-img
+      - qemu-kvm
+      - libvirt-client
+      - libvirt-daemon-kvm
+      - virt-install
+      - firewalld
+      - lorax
+      - gobject-introspection
+      - rpmbuild
+      - go-rpm-macros
 
 execute:
     how: tmt

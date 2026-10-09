@@ -39,6 +39,8 @@ prepare:
       - firewalld
       - lorax
       - gobject-introspection
+      - rpmbuild
+      - go-rpm-macros
 
 execute:
     how: tmt
