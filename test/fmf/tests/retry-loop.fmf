@@ -23,6 +23,5 @@ description: |
 test: ./test-retry-loop.sh
 duration: 10m
 tag:
-  - e2e
-  - coordinated
+  - rpm
   - client

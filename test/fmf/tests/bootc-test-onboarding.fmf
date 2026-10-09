@@ -13,9 +13,6 @@ framework: shell
 duration: 60m
 
 tag:
-  - fdo
-  - e2e
-  - onboarding
   - bootc
   - server
   - client

@@ -3,7 +3,7 @@ description: FDO device onboarding in bootc image
 
 discover:
     how: fmf
-    filter: tag:bootc & tag:client
+    filter: tag:bootc
 
 provision:
     hardware:

@@ -15,9 +15,6 @@ framework: shell
 duration: 10m
 
 tag:
-  - fdo
-  - e2e
-  - protocol
-  - onboarding
   - rpm
   - server
+  - client

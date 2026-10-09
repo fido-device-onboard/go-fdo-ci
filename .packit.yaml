@@ -7,62 +7,32 @@ issue_repository: https://github.com/fido-device-onboard/go-fdo-ci
 jobs:
   - job: tests
     trigger: pull_request
-    identifier: rpm-e2e-fedora
+    identifier: rpm
     skip_build: true
     env: &published_packages
       INSTALLATION_SOURCE: copr
-    tmt_plan: test/fmf/plans/rpm-e2e
-    targets: &fedora_targets
+    tmt_plan: test/fmf/plans/rpm
+    targets:
       - fedora-latest-stable-x86_64
       - fedora-latest-stable-aarch64
       - fedora-latest-x86_64
       - fedora-latest-aarch64
       - fedora-rawhide-x86_64
       - fedora-rawhide-aarch64
-
-  - job: tests
-    trigger: pull_request
-    identifier: e2e-fedora
-    skip_build: true
-    env: *published_packages
-    tmt_plan: test/fmf/plans/e2e
-    targets: *fedora_targets
-
-  # Match the product repositories: bootc runs on Fedora latest-stable only.
-  - job: tests
-    trigger: pull_request
-    identifier: bootc-e2e-fedora
-    skip_build: true
-    env: *published_packages
-    tmt_plan: test/fmf/plans/bootc-e2e
-    targets: &bootc_targets
-      - fedora-latest-stable-x86_64
-      - fedora-latest-stable-aarch64
-
-  - job: tests
-    trigger: pull_request
-    identifier: bootc-onboarding-fedora
-    skip_build: true
-    env: *published_packages
-    tmt_plan: test/fmf/plans/bootc-onboarding
-    targets: *bootc_targets
-
-  - job: tests
-    trigger: pull_request
-    identifier: rpm-e2e-centos
-    skip_build: true
-    env: *published_packages
-    tmt_plan: test/fmf/plans/rpm-e2e
-    targets: &centos_targets
       - centos-stream-9-x86_64
       - centos-stream-9-aarch64
       - centos-stream-10-x86_64
       - centos-stream-10-aarch64
 
+  # Match the product repositories: bootc runs on Fedora latest-stable only.
   - job: tests
     trigger: pull_request
-    identifier: e2e-centos
+    identifier: bootc
     skip_build: true
     env: *published_packages
-    tmt_plan: test/fmf/plans/e2e
-    targets: *centos_targets
+    tmt_plan: test/fmf/plans/bootc
+    targets:
+      - fedora-latest-stable-x86_64
+      - fedora-latest-stable-aarch64
+      - centos-stream-10-x86_64
+      - centos-stream-10-aarch64
