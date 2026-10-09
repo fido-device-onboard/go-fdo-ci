@@ -1,0 +1,27 @@
+summary: FDO test plan
+description: Fast smoke tests + comprehensive FDO protocol testing
+
+discover:
+    how: fmf
+    filter: tag:rpm
+
+provision:
+    how: virtual
+    memory: 2048
+    disk: 10
+
+prepare:
+  - how: install
+    package:
+      - audit
+      - policycoreutils-python-utils
+      - golang
+      - make
+      - openssl
+      - curl
+      - git
+      - jq
+      - npm
+
+execute:
+    how: tmt

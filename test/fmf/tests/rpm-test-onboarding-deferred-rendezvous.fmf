@@ -10,18 +10,7 @@ framework: shell
 
 duration: 30m
 
-require:
-  - go-fdo-server
-  - go-fdo-server-manufacturer
-  - go-fdo-server-owner
-  - go-fdo-server-rendezvous
-
 tag:
-  - fdo
-  - e2e
-  - protocol
-  - onboarding
-  - rendezvous
-  - deferred
   - rpm
   - server
+  - client

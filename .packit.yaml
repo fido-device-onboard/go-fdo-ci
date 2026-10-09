@@ -1,0 +1,38 @@
+---
+# Tests-only jobs exercise this PR's shared TMT plans using published packages.
+# No fmf_url/fmf_ref: Testing Farm must use the go-fdo-ci PR checkout.
+upstream_package_name: go-fdo-ci
+issue_repository: https://github.com/fido-device-onboard/go-fdo-ci
+
+jobs:
+  - job: tests
+    trigger: pull_request
+    identifier: rpm
+    skip_build: true
+    env: &published_packages
+      INSTALLATION_SOURCE: copr
+    tmt_plan: test/fmf/plans/rpm
+    targets:
+      - fedora-latest-stable-x86_64
+      - fedora-latest-stable-aarch64
+      - fedora-latest-x86_64
+      - fedora-latest-aarch64
+      - fedora-rawhide-x86_64
+      - fedora-rawhide-aarch64
+      - centos-stream-9-x86_64
+      - centos-stream-9-aarch64
+      - centos-stream-10-x86_64
+      - centos-stream-10-aarch64
+
+  # Match the product repositories: bootc runs on Fedora latest-stable only.
+  - job: tests
+    trigger: pull_request
+    identifier: bootc
+    skip_build: true
+    env: *published_packages
+    tmt_plan: test/fmf/plans/bootc
+    targets:
+      - fedora-latest-stable-x86_64
+      - fedora-latest-stable-aarch64
+      - centos-stream-10-x86_64
+      - centos-stream-10-aarch64
