@@ -6,8 +6,6 @@ description: |
     go-fdo-server is installed in the prepare step.
 test: ./test-onboarding.sh
 duration: 30m
-require:
-  - go-fdo-client
 tag:
   - e2e
   - coordinated
