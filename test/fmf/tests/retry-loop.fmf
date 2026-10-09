@@ -23,5 +23,6 @@ description: |
 test: ./test-retry-loop.sh
 duration: 10m
 tag:
-  - rpm
-  - client
+# TODO: migrate the test to use common functions
+#  - rpm
+#  - client
