@@ -15,28 +15,88 @@ test/
   fmf/
     plans/      tmt plans referenced by Packit
     tests/      FMF test metadata and test scripts
-  rpm/          RPM-installed server test scripts
+  rpm/          Shared RPM client/server integration test scripts
   scripts/      Shared utility scripts
 ```
 
 ## Test Plans
 
-| Plan | Filter | What it runs |
+The shared integration tests exercise both the FDO client and server.
+Plans select tests by installation method rather than by component.
+
+| Plan | Filter | Coverage |
 |---|---|---|
-| `test/fmf/plans/rpm-e2e.fmf` | `tag:rpm` | 4 server RPM install tests |
-| `test/fmf/plans/bootc-e2e.fmf` | `tag:bootc & tag:server` | Server bootc image test |
-| `test/fmf/plans/e2e.fmf` | `tag:e2e & tag:client` | 2 client E2E onboarding tests |
-| `test/fmf/plans/bootc-onboarding.fmf` | `tag:bootc & tag:client` | Client bootc image test |
-| `test/fmf/plans/coordinated-e2e.fmf` | `tag:coordinated` | Server@PR + client@PR together |
+| `test/fmf/plans/rpm.fmf` | `tag:rpm` | Four RPM onboarding tests: standard, defaults, deferred rendezvous, and HTTPS |
+| `test/fmf/plans/bootc.fmf` | `tag:bootc` | One bootc onboarding test using `test/bootc/test-onboarding.sh` |
+
+The RPM and bootc tests carry both `client` and `server` tags. Their
+scripts manage product-package installation through shared helpers;
+FMF plans prepare the general dependencies needed to run the tests.
+
+The retry-loop test remains in the repository but is excluded from
+these plans until it is migrated to the common functions.
+
+## Packit Tests for This Repository
+
+Pull requests against `go-fdo-ci` run tests-only Packit jobs with
+`skip_build: true`. The jobs use the PR's own FMF definitions and set
+`INSTALLATION_SOURCE=copr` to select published FDO packages.
+
+| Job | Distributions | Architectures | Combinations |
+|---|---|---|---:|
+| `rpm` | Fedora latest-stable, latest, rawhide; CentOS Stream 9 and 10 | x86_64, aarch64 | 10 |
+| `bootc` | Fedora latest-stable; CentOS Stream 10 | x86_64, aarch64 | 4 |
+| **Total** | | | **14** |
+
+Fedora target aliases are resolved by Packit and can change as Fedora
+releases advance.
+
+See [RPM_TESTING.md](RPM_TESTING.md) for package-source selection and
+the distinction between product-PR and tests-only runs.
+
+## Migration from the Previous Plans
+
+Consumers of the shared FMF definitions should update their
+`tmt_plan` values as follows:
+
+| Previous plan | Replacement |
+|---|---|
+| `test/fmf/plans/rpm-e2e` | `test/fmf/plans/rpm` |
+| `test/fmf/plans/e2e` | `test/fmf/plans/rpm` |
+| `test/fmf/plans/bootc-e2e` | `test/fmf/plans/bootc` |
+| `test/fmf/plans/bootc-onboarding` | `test/fmf/plans/bootc` |
+
+These replacements consolidate the supported onboarding workflows;
+they do not preserve the former test selection exactly. In particular,
+retry-loop coverage is currently excluded.
+
+The `coordinated-e2e` plan has been removed without a direct replacement.
+The standalone client onboarding script and legacy bootc onboarding
+script, together with their FMF test metadata, have also been removed.
+
+Repositories following `go-fdo-ci`'s `main` branch must coordinate their
+plan-reference updates with this migration.
+
+The common bootc container builder currently installs the client from
+the published `fedora-iot` Copr unless `BREW_CLIENT_RPMS_URL` is supplied.
+It does not select the client PR's Copr project. Migrating client-PR
+bootc coverage therefore also requires verifying that the intended
+client build is exercised.
 
 ---
 
-## File Manifest
+## Historical Import Manifest
 
-Complete record of every file: where it came from, where it landed, and what (if anything) changed.
+The following tables record the initial import from `go-fdo-server` and
+`go-fdo-client`. Paths, file counts, tags, and descriptions in this
+section refer to that import, not to the current repository layout.
 
-**Total files: 63**
-- New (created from scratch): 3
+Some imported plans and scripts have since been renamed or removed.
+Use the Test Plans and Migration sections above for current names and
+coverage.
+
+**Files recorded at the initial import: 63**
+- New: 3
 - Copied unchanged: 29
 - Copied with modifications: 31
 
@@ -109,7 +169,9 @@ Complete record of every file: where it came from, where it landed, and what (if
 | `test/bootc/utils.sh` | `test/bootc/utils.sh` | Unchanged |
 | `test/bootc/test-onboarding.sh` | `test/bootc/test-onboarding.sh` | Unchanged |
 
-> `test/bootc/test-bootc-onboarding.sh` also lives here — see the [client section](#from-go-fdo-client) below.
+> At the initial import, the client bootc script was placed at
+> `test/bootc/test-bootc-onboarding.sh`. That legacy script has since
+> been removed in favor of `test/bootc/test-onboarding.sh`.
 
 #### `scripts/` → `test/scripts/` — Server Utility Scripts
 
@@ -167,17 +229,31 @@ Complete record of every file: where it came from, where it landed, and what (if
 
 ---
 
-## Notes on Changes
+## Historical Import Notes
 
-### Why the Coordinated Plan Uses Absolute Paths
+These notes explain decisions made during the initial import.
+The coordinated plan, compound discovery filters, and legacy client
+bootc script described below have since been superseded by the
+consolidated plans documented above.
 
-`coordinated-e2e.fmf` clones both repos into `/var/tmp/fdo/server` and `/var/tmp/fdo/client` and sets `SERVER_LOCAL_PATH`/`CLIENT_LOCAL_PATH` to those absolute paths. Relative paths (e.g., `server`, `client`) would not work because tmt runs each test script from the test's own directory (`test/fmf/tests/`), not from the directory where the `prepare:` step ran. Absolute paths are the only safe option for cross-step path sharing in tmt.
+### Why the Coordinated Plan Used Absolute Paths
 
-The `SERVER_REF` and `CLIENT_REF` environment variables control which commit each repo is checked out to; both default to `main`.
+The original `coordinated-e2e.fmf` cloned both repos into
+`/var/tmp/fdo/server` and `/var/tmp/fdo/client` and set
+`SERVER_LOCAL_PATH`/`CLIENT_LOCAL_PATH` to those absolute paths.
+This avoided depending on the working directory used by individual
+tmt steps.
 
-### Why Filters Use Compound Expressions
+The `SERVER_REF` and `CLIENT_REF` environment variables controlled
+which commit each repo was checked out to; both defaulted to `main`.
 
-The `go-fdo-ci` FMF tree contains all 8 tests from both repos. Simple single-tag filters that worked in each repo's narrow local tree become too broad in the combined tree — for example, `tag:e2e` would match 7 tests instead of 2 after migration. All tests are tagged `client` or `server` to allow unambiguous compound filters (`tag:e2e & tag:client`).
+### Why Filters Originally Used Compound Expressions
+
+The initial FMF tree combined eight tests from both repos. Single-tag
+filters from the separate repositories became too broad in the combined
+tree. The original plans used component tags in compound filters such
+as `tag:e2e & tag:client`. The current plans instead select the common
+tests with `tag:rpm` and `tag:bootc`.
 
 ### Why `fdo-utils.sh` Was Renamed Twice
 
@@ -189,9 +265,13 @@ Merging both into `test/scripts/` required renaming to avoid collision:
 - Server's → `server-api-utils.sh`
 - Client's → `client-test-utils.sh`
 
-### Why `test-bootc-onboarding.sh` Moved
+### Why the Legacy Client Bootc Script Was Initially Moved
 
-The client stored its bootc test script alongside FMF metadata in `test/fmf/tests/`. In `go-fdo-ci`, bootc scripts live in `test/bootc/` alongside the server's bootc scripts. The `bootc-onboarding.fmf` metadata was updated to reflect the new path.
+The client originally stored its bootc test script alongside FMF
+metadata in `test/fmf/tests/`. During the import, it was moved to
+`test/bootc/`, and `bootc-onboarding.fmf` was updated to reference that
+location. The legacy script and metadata have since been removed in
+favor of the common bootc test.
 
 ### What Stayed in `go-fdo-server` (Not Moved)
 
