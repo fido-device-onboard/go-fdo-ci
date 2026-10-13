@@ -11,8 +11,8 @@ Three environment variables control where RPMs come from:
 | Variable                       | Description                          | Default    |
 |--------------------------------|--------------------------------------|------------|
 | `INSTALLATION_SOURCE`          | Default source for both components   | `source`   |
-| `CLIENT_INSTALLATION_SOURCE`   | Override source for go-fdo-client    | `$INSTALLATION_SOURCE` |
-| `SERVER_INSTALLATION_SOURCE`   | Override source for go-fdo-server    | `$INSTALLATION_SOURCE` |
+| `CLIENT_INSTALLATION_SOURCE`   | Override source for `go-fdo-client`    | `$INSTALLATION_SOURCE` |
+| `SERVER_INSTALLATION_SOURCE`   | Override source for `go-fdo-server`    | `$INSTALLATION_SOURCE` |
 
 ## Available Sources
 
@@ -43,8 +43,8 @@ The repository is controlled by the `COPR_REPO` environment variable.
 | Variable          | Description                            | Default                    |
 |-------------------|----------------------------------------|----------------------------|
 | `COPR_REPO`       | Default Copr project for both components | `@fedora-iot/fedora-iot`   |
-| `CLIENT_COPR_REPO`| Override Copr project for go-fdo-client  | `$COPR_REPO`              |
-| `SERVER_COPR_REPO`| Override Copr project for go-fdo-server  | `$COPR_REPO`              |
+| `CLIENT_COPR_REPO`| Override Copr project for `go-fdo-client`  | `$COPR_REPO`              |
+| `SERVER_COPR_REPO`| Override Copr project for `go-fdo-server`  | `$COPR_REPO`              |
 | `COPR_CHROOT`     | Chroot to enable (`NAME-RELEASE-ARCH`)   | `centos-stream-$VERSION_ID-$(uname -m)` on CentOS Stream, auto-detected by dnf elsewhere |
 
 The `COPR_REPO` value supports two formats:
@@ -97,8 +97,8 @@ Brew installation is selected via dedicated URL variables, not through
 
 | Variable               | Description                                     |
 |------------------------|-------------------------------------------------|
-| `BREW_CLIENT_RPMS_URL` | Brew build base URL for go-fdo-client            |
-| `BREW_SERVER_RPMS_URL` | Brew build base URL for go-fdo-server            |
+| `BREW_CLIENT_RPMS_URL` | Brew build base URL for `go-fdo-client`            |
+| `BREW_SERVER_RPMS_URL` | Brew build base URL for `go-fdo-server`            |
 
 The URL should point to the version/release directory of the package in Brew.
 
@@ -125,13 +125,23 @@ BREW_SERVER_RPMS_URL=https://brewhost/packages/go-fdo-server/1.0.1/2.el10 \
 
 ## CI (Packit) Variables
 
-When tests run in Packit/TMT, the following variables are set automatically
-and take precedence over `INSTALLATION_SOURCE`:
+Product-PR jobs can provide the following variables to identify RPMs
+built by Packit. When both variables are set, the RPM helpers use their
+artifact-selection logic before consulting `INSTALLATION_SOURCE`.
+
+Tests-only jobs in `go-fdo-ci` use `skip_build: true` and do not supply
+product RPM artifacts. These jobs explicitly set
+`INSTALLATION_SOURCE=copr` so the RPM helpers install published
+packages.
 
 | Variable           | Description                                              |
 |--------------------|----------------------------------------------------------|
 | `PACKIT_COPR_RPMS` | Space-separated list of RPMs built by Packit             |
 | `PACKIT_COPR_PROJECT` | Copr repository where Packit published the build         |
+
+For product-PR runs, the helpers install the component represented by
+the Packit artifacts from its PR Copr project. The other component is
+installed from its configured Copr repository.
 
 ## Priority Order
 
@@ -139,4 +149,37 @@ The installation logic picks the first matching condition:
 
 1. `BREW_CLIENT_RPMS_URL` / `BREW_SERVER_RPMS_URL` (if set)
 2. `PACKIT_COPR_RPMS` + `PACKIT_COPR_PROJECT` (if both set, CI environment)
-3. `CLIENT_INSTALLATION_SOURCE` / `SERVER_INSTALLATION_SOURCE` (local/manual runs)
+3. `CLIENT_INSTALLATION_SOURCE` / `SERVER_INSTALLATION_SOURCE`
+   (including tests-only runs without Packit product artifacts)
+
+## Compose Availability
+
+Selecting `compose` requires the chosen compose to contain the
+requested FDO packages. It does not fall back to Copr when a package
+is missing.
+
+The CentOS Stream 9 compose used in the reviewed CI runs did not
+provide `go-fdo-client`, so RPM tests using
+`INSTALLATION_SOURCE=compose` failed during client installation.
+Use the published Copr source for the CS9 tests-only configuration.
+
+A compose-mode failure does not establish that the default
+Copr-mode job fails; check the environment recorded in the run's
+Testing Farm artifacts.
+
+## Bootc Installation Sources
+
+The common bootc test inherits server installation from
+`test/rpm/utils.sh`.
+
+Client installation inside the bootc image follows separate logic in
+`test/bootc/utils.sh`:
+
+- If `BREW_CLIENT_RPMS_URL` is set, install the specified Brew build.
+- Otherwise, install from the published `@fedora-iot/fedora-iot` Copr.
+
+The bootc client builder currently does not honor
+`CLIENT_INSTALLATION_SOURCE` or select `PACKIT_COPR_PROJECT`.
+Consequently, `INSTALLATION_SOURCE=compose` does not make the entire
+bootc test compose-only, and a passing tests-only bootc run does not
+validate client-PR artifact selection.

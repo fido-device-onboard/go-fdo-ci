@@ -3,7 +3,7 @@ description: FDO device onboarding in bootc image
 
 discover:
     how: fmf
-    filter: tag:bootc & tag:server
+    filter: tag:bootc
 
 provision:
     hardware:
@@ -39,6 +39,8 @@ prepare:
       - firewalld
       - lorax
       - gobject-introspection
+      - rpm-build
+      - go-rpm-macros
 
 execute:
     how: tmt
