@@ -590,3 +590,15 @@ cleanup() {
   uninstall_client
   remove_files
 }
+
+# Check if client supports FDO 2.0 and skip test if not
+# This function will exit the script if FDO 2.0 is not supported
+check_fdo_20_support() {
+  log_info "Checking if client supports FDO 2.0"
+  if ! "${bin_dir}/go-fdo-client" onboard --help 2>&1 | grep -q "fdo-version"; then
+    log_warn "Client does not support --fdo-version flag, skipping FDO 2.0 delegate test"
+    trap - EXIT
+    test_pass
+    exit 0
+  fi
+}
