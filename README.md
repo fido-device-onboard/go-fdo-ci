@@ -77,11 +77,8 @@ script, together with their FMF test metadata, have also been removed.
 Repositories following `go-fdo-ci`'s `main` branch must coordinate their
 plan-reference updates with this migration.
 
-The common bootc container builder currently installs the client from
-the published `fedora-iot` Copr unless `BREW_CLIENT_RPMS_URL` is supplied.
-It does not select the client PR's Copr project. Migrating client-PR
-bootc coverage therefore also requires verifying that the intended
-client build is exercised.
+See [RPM_TESTING.md](RPM_TESTING.md) for package installation source
+selection in both RPM and bootc test layers.
 
 ---
 
