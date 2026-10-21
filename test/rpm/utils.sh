@@ -213,6 +213,20 @@ configure_service_owner() {
 go_fdo_server_rpms="go-fdo-server go-fdo-server-manufacturer go-fdo-server-owner go-fdo-server-rendezvous"
 go_fdo_client_rpms="go-fdo-client"
 
+# Build client RPMs from source and print their absolute paths to stdout.
+# Build output goes to stderr to keep stdout clean for path collection.
+# Must be called from within client_src_dir.
+#
+# Usage (from client_src_dir): rpms=$(build_client_rpms)
+build_client_rpms() {
+  local commit
+  commit="$(git rev-parse --short HEAD)"
+  make rpm 1>&2
+  # Print absolute paths (glob expansion intentional for multiple RPMs)
+  # shellcheck disable=SC2046
+  echo "$(pwd)"/rpmbuild/rpms/"$(uname -m)"/*git"${commit}".$(uname -m).rpm
+}
+
 install_rpms_from_source() {
   local rpms="$*"
   case "${rpms}" in
@@ -221,8 +235,10 @@ install_rpms_from_source() {
     pushd "${client_src_dir}" >/dev/null
     commit="$(git rev-parse --short HEAD)"
     rpm -q go-fdo-client 2>/dev/null | grep -q "go-fdo-client.*git${commit}.*$(rpm -q --eval "%dist")" || {
-      make rpm
-      sudo dnf install -y rpmbuild/rpms/"$(uname -m)"/*git"${commit}".$(uname -m).rpm
+      local client_rpms
+      client_rpms=$(build_client_rpms)
+      # shellcheck disable=SC2086
+      sudo dnf install -y ${client_rpms}
     }
     popd >/dev/null
     ;;
@@ -325,8 +341,16 @@ install_rpms_from_copr() {
   disable_copr_repo "${copr}"
 }
 
-install_rpms_from_compose() {
-  local rpms="$*"
+# Generate compose repository files for the running system.
+# Writes .repo files to the specified directory and prints the
+# repo_base_name to stdout.
+#
+# Usage: repo_base_name=$(generate_compose_repo_files <dir>)
+generate_compose_repo_files() {
+  local repo_dir="${1}"
+  [ -n "${repo_dir}" ] || log_error "Repository directory must be provided as first argument"
+  mkdir -p "${repo_dir}"
+
   source /etc/os-release
   case "${ID}-${VERSION_ID}" in
   fedora-*)
@@ -356,12 +380,12 @@ install_rpms_from_compose() {
     log_error "OS not supported"
     ;;
   esac
-  repo_base_name="go-fdo-ci-compose-${ID}-${VERSION_ID}"
-  repo_dir="/etc/yum.repos.d"
+
+  local repo_base_name="go-fdo-ci-compose-${ID}-${VERSION_ID}"
   for stream in ${compose_streams}; do
-    repo_name="${repo_base_name}-${stream}"
-    repo_file="${repo_dir}/${repo_name}.repo"
-    sudo tee "${repo_file}" <<EOF
+    local repo_name="${repo_base_name}-${stream}"
+    local repo_file="${repo_dir}/${repo_name}.repo"
+    tee "${repo_file}" >/dev/null <<EOF
 [${repo_name}]
 name=${repo_name}
 baseurl=${compose_base_url}/${stream}/$(uname -m)/os/
@@ -369,7 +393,7 @@ enabled=1
 gpgcheck=0
 EOF
     if [ "${ID}" = "fedora" ] && [ ! -v "COMPOSE_BASE_URL" ] && [ ! -v "COMPOSE_STREAMS" ]; then
-      sudo tee -a "${repo_file}" <<EOF
+      tee -a "${repo_file}" >/dev/null <<EOF
 [${repo_name}-updates]
 name=${repo_name}-updates
 baseurl=${compose_host}/compose/updates/f${VERSION_ID}-updates/compose/${stream}/$(uname -m)/os/
@@ -378,8 +402,22 @@ gpgcheck=0
 EOF
     fi
   done
+
+  echo "${repo_base_name}"
+}
+
+install_rpms_from_compose() {
+  local rpms="$*"
+  local temp_repo_dir
+  temp_repo_dir=$(mktemp -d)
+
+  local repo_base_name
+  repo_base_name=$(generate_compose_repo_files "${temp_repo_dir}")
+
+  sudo cp "${temp_repo_dir}"/*.repo /etc/yum.repos.d/
   sudo dnf install --disablerepo=* --enablerepo="${repo_base_name}*" -y ${rpms}
-  sudo rm -f "${repo_dir?}/${repo_base_name:?}"*.repo
+  sudo rm -f /etc/yum.repos.d/"${repo_base_name}"*.repo
+  rm -rf "${temp_repo_dir}"
 }
 
 # List the RPM package URLs published under a brew build base URL.
