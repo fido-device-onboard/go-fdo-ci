@@ -169,17 +169,42 @@ Testing Farm artifacts.
 
 ## Bootc Installation Sources
 
-The common bootc test inherits server installation from
-`test/rpm/utils.sh`.
+The bootc test layer supports the same installation sources and
+environment variables as the RPM layer for both client and server
+packages.
 
-Client installation inside the bootc image follows separate logic in
-`test/bootc/utils.sh`:
+**Server installation** is handled by `install_server` from
+`test/rpm/utils.sh` on the host system, following the priority order
+and source selection described above.
 
-- If `BREW_CLIENT_RPMS_URL` is set, install the specified Brew build.
-- Otherwise, install from the published `@fedora-iot/fedora-iot` Copr.
+**Client installation** occurs inside the bootc container image build
+and follows the same priority order:
 
-The bootc client builder currently does not honor
-`CLIENT_INSTALLATION_SOURCE` or select `PACKIT_COPR_PROJECT`.
-Consequently, `INSTALLATION_SOURCE=compose` does not make the entire
-bootc test compose-only, and a passing tests-only bootc run does not
-validate client-PR artifact selection.
+1. `BREW_CLIENT_RPMS_URL` (if set) — install from the specified Brew
+   build
+2. `PACKIT_COPR_RPMS` + `PACKIT_COPR_PROJECT` (if both set) — install
+   the PR's Copr artifacts when the list contains `go-fdo-client`;
+   otherwise use the default `client_copr_repo`
+3. `CLIENT_INSTALLATION_SOURCE` — one of `source`, `distro`, `copr`,
+   or `compose`
+
+### Source Mode in Bootc
+
+When `CLIENT_INSTALLATION_SOURCE=source`, the client RPMs are built
+on the host system (where golang and rpm-build tools are available)
+and then copied into the bootc image via `COPY` instructions. This
+keeps the image size down by avoiding the installation of the entire
+build toolchain inside the container.
+
+The host and bootc base image must be the same distribution and
+version (e.g., `fedora-43` host → `fedora-bootc:43` base image).
+This requirement is already satisfied by the bootc test environment.
+
+### Copr Chroot Selection
+
+On CentOS Stream, the bootc client builder explicitly specifies the
+`centos-stream-$VERSION_ID-$(uname -m)` chroot when enabling Copr
+repositories (using `copr_chroot_for_system` from
+`test/rpm/utils.sh`), matching the behavior of the RPM layer and
+avoiding the dnf plugin's autodetection, which would incorrectly
+select `centos-$VERSION_ID` or `epel-*` chroots.
