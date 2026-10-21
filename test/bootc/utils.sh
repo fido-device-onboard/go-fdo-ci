@@ -5,8 +5,11 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/../rpm/u
 
 ssh_options=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
 ssh_key="id_rsa"
-sudo ssh-keygen -f id_rsa -N "" -q -t rsa-sha2-256 -b 2048 <<<y
-ssh_key_pub=$(cat "${ssh_key}.pub")
+# Skip SSH key generation when BOOTC_SKIP_SSH_INIT is set (e.g., for Containerfile generation tests)
+if [ -z "${BOOTC_SKIP_SSH_INIT:-}" ]; then
+  sudo ssh-keygen -f id_rsa -N "" -q -t rsa-sha2-256 -b 2048 <<<y
+  ssh_key_pub=$(cat "${ssh_key}.pub")
+fi
 manufacturer_ip="192.168.100.1"
 rendezvous_ip="192.168.100.1"
 owner_ip="192.168.100.1"
@@ -42,7 +45,113 @@ case "${ID}-${VERSION_ID}" in
     ;;
 esac
 
+# Print Containerfile instructions to install go-fdo-client from brew.
+containerfile_install_from_brew() {
+  local brew_url="${1}"
+  cat <<EOF
+# --nogpgcheck and sslverify=false are intentional: internal brew servers
+# use self-signed certificates and builds may not be GPG-signed.
+RUN dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${brew_url}" | tr '\n' ' ')
+EOF
+}
+
+# Print Containerfile instructions to install go-fdo-client from distro repos.
+containerfile_install_from_distro() {
+  cat <<EOF
+RUN dnf install -y go-fdo-client
+EOF
+}
+
+# Print Containerfile instructions to install go-fdo-client from a Copr repo.
+containerfile_install_from_copr() {
+  local copr="${1}"
+  local rpms="${2}"
+  local chroot
+  chroot="$(copr_chroot_for_system)"
+  cat <<EOF
+RUN dnf=\$(readlink \$(command -v dnf)); [ "\${dnf}" = "dnf5" ] || dnf=dnf ; \\
+    rpm -q --whatprovides \${dnf}'-command(copr)' &> /dev/null || \${dnf} install -y \${dnf}'-command(copr)'; \\
+    \${dnf} copr enable -y '${copr}'${chroot:+ ${chroot}}; \\
+    \${dnf} install -y ${rpms}; \\
+    \${dnf} copr disable -y '${copr}'
+EOF
+}
+
+# Print Containerfile instructions to install go-fdo-client from compose repos.
+containerfile_install_from_compose() {
+  local repo_base_name
+  repo_base_name=$(generate_compose_repo_files files/compose)
+  cat <<EOF
+COPY files/compose/*.repo /etc/yum.repos.d/
+RUN dnf install -y --disablerepo=* --enablerepo='${repo_base_name}*' go-fdo-client && \\
+    rm -f /etc/yum.repos.d/${repo_base_name}*.repo
+EOF
+}
+
+# Print Containerfile instructions to install go-fdo-client from source.
+# Expects client RPMs to be already built and copied to files/client-rpms/.
+containerfile_install_from_source() {
+  cat <<EOF
+COPY files/client-rpms/*.rpm /tmp/client-rpms/
+RUN dnf install -y /tmp/client-rpms/*.rpm && \\
+    rm -rf /tmp/client-rpms
+EOF
+}
+
+# Print Containerfile instructions to install go-fdo-client according to
+# the configured installation source (BREW_CLIENT_RPMS_URL, PACKIT_COPR_*,
+# or CLIENT_INSTALLATION_SOURCE).
+containerfile_client_install() {
+  if [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
+    containerfile_install_from_brew "${BREW_CLIENT_RPMS_URL}"
+  elif [ -v "PACKIT_COPR_RPMS" ] && [ -v "PACKIT_COPR_PROJECT" ]; then
+    if [[ "${PACKIT_COPR_RPMS}" =~ go-fdo-client ]]; then
+      # Install the specific NVRs from the PR Copr project
+      containerfile_install_from_copr "${PACKIT_COPR_PROJECT}" "${PACKIT_COPR_RPMS}"
+    else
+      # Install from the default client Copr repo
+      containerfile_install_from_copr "${client_copr_repo}" "${go_fdo_client_rpms}"
+    fi
+  else
+    case "${client_installation_source}" in
+    "distro")
+      containerfile_install_from_distro
+      ;;
+    "copr")
+      containerfile_install_from_copr "${client_copr_repo}" "${go_fdo_client_rpms}"
+      ;;
+    "compose")
+      containerfile_install_from_compose
+      ;;
+    "source")
+      containerfile_install_from_source
+      ;;
+    *)
+      log_error "Unsupported client installation source: '${client_installation_source}'"
+      ;;
+    esac
+  fi
+}
+
 build_bootc_container() {
+  # Clean up files from previous runs
+  rm -rf files
+
+  # For source installation, build client RPMs on the host
+  if [ -z "${BREW_CLIENT_RPMS_URL:-}" ] && \
+     ! ([ -v "PACKIT_COPR_RPMS" ] && [ -v "PACKIT_COPR_PROJECT" ]) && \
+     [ "${client_installation_source}" = "source" ]; then
+    log_info "Building client RPMs from source on the host"
+    fetch_client_repo
+    pushd "${client_src_dir}" >/dev/null
+    local client_rpms
+    client_rpms=$(build_client_rpms)
+    popd >/dev/null
+    mkdir -p files/client-rpms
+    # shellcheck disable=SC2086
+    cp ${client_rpms} files/client-rpms/
+  fi
+
   # For any RHEL host, generate a repo file pointing at the nightly compose so
   # that the built container image has enabled repos. This is unrelated to
   # installing go-fdo-client (which never needs repos, whichever path below is
@@ -75,33 +184,20 @@ sslverify=0
 EOF
   fi
 
-  if [ -n "${BREW_CLIENT_RPMS_URL:-}" ]; then
-    # Install go-fdo-client from a specific brew build base path.
-    # BREW_CLIENT_RPMS_URL should point to the version/release directory of the package in brew.
-    # e.g.: https://${BREW_HOST}/${BREW_PACKAGES_DIR}/go-fdo-client/1.0.0/4.el10_2.5
-    tee Containerfile >/dev/null <<EOF
+  # Build Containerfile
+  tee Containerfile <<EOF
 FROM ${base_image_url}
-# --nogpgcheck and sslverify=false are intentional: internal brew servers
-# use self-signed certificates and builds may not be GPG-signed.
-RUN dnf install -y --nogpgcheck --setopt=sslverify=false $(rpms_from_brew_url "${BREW_CLIENT_RPMS_URL}" | tr '\n' ' ')
 EOF
-  else
-    tee Containerfile >/dev/null <<EOF
-FROM ${base_image_url}
-RUN dnf=\$(readlink \$(command -v dnf)); [ "\${dnf}" = "dnf5" ] || dnf=dnf ; \
-    rpm -q --whatprovides \${dnf}'-command(copr)' &> /dev/null || \${dnf} install -y \${dnf}'-command(copr)'; \
-    \${dnf} copr enable -y '@fedora-iot/fedora-iot'; \
-    \${dnf} install -y go-fdo-client; \
-    \${dnf} copr disable -y @fedora-iot/fedora-iot
-EOF
-  fi
 
-  # Append the RHEL repo file into the container image when it was generated.
+  # Copy RHEL repo file before client installation so distro/compose can use it
   if [ -n "${rhel_repo_file}" ]; then
-    tee -a Containerfile >/dev/null << EOF
+    tee -a Containerfile <<EOF
 COPY ${rhel_repo_file} /etc/yum.repos.d/rhel-${VERSION_ID}.repo
 EOF
   fi
+
+  # Add client installation instructions
+  containerfile_client_install | tee -a Containerfile
 
   podman build --retry=5 --retry-delay=10s -t "fdo-bootc:latest" -f Containerfile .
 }
@@ -160,6 +256,12 @@ install_client() {
   if [[ ! -v "PACKIT_COPR_RPMS" ]]; then
     log_info "Install required packages"
     local packages=(podman jq gobject-introspection qemu-img qemu-kvm)
+
+    # Add build dependencies for source installation
+    if [ "${client_installation_source}" = "source" ]; then
+      packages+=(git golang go-vendor-tools python3-tomlkit askalono-cli rpmdevtools go-rpm-macros)
+    fi
+
     sudo dnf install -y "${packages[@]}"
   fi
 
