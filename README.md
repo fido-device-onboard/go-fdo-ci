@@ -19,6 +19,32 @@ test/
   scripts/      Shared utility scripts
 ```
 
+## How Source Repos Use This Repository
+
+Both `go-fdo-server` and `go-fdo-client` check out `go-fdo-ci` test
+scripts in their GitHub Actions workflows and point their Packit
+`fmf_url` here. Server PRs test `server@PR + client@main`; client PRs
+test `client@PR + server@main`. See
+[go-fdo-server#203](https://github.com/fido-device-onboard/go-fdo-server/discussions/203)
+for the design discussion.
+
+For coordinated testing (`server@PR + client@PR` together) and
+retriggering, see [CI.md](CI.md).
+
+## Adding a New E2E Test
+
+Add `test/ci/test-my-feature.sh` with `run_test`, `get_logs`, and
+`cleanup` functions (see existing scripts for the pattern). The
+`e2e.yml` matrix auto-discovers `test-*.sh` files — no workflow
+changes needed. Optionally add a container variant in
+`test/container/` that sources the native script and container
+`utils.sh`.
+
+When a feature PR in a source repo needs a new test, open a second PR
+here with the test script. Use `/ci test` on the `go-fdo-ci` PR to
+validate them together before merging. See [CI.md](CI.md) for the
+exact commands and examples.
+
 ## Test Plans
 
 The shared integration tests exercise both the FDO client and server.
