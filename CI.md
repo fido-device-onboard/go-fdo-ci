@@ -26,7 +26,7 @@ git refs are checked out for the build.
 /ci test [--commit <ref>] [--env KEY=VALUE ...]
 ```
 
-- `--commit <ref>` — `go-fdo-ci` ref to test (defaults to the PR head SHA)
+- `--commit <ref>` — `go-fdo-ci` ref to test (branch, tag, or `refs/pull/N/head`; defaults to the PR head SHA)
 - `--env KEY=VALUE` — pass environment variables to the test jobs
 
 ### Supported Environment Variables
@@ -123,13 +123,13 @@ on pull requests but can be retriggered or customized via PR comments.
 /packit test --identifier rpm --env INSTALLATION_SOURCE=distro
 ```
 
-**Test with a specific server PR:**
+**Test with a specific server PR in RPM tests:**
 
 ```
 /packit test --identifier rpm --env SERVER_REF=refs/pull/42/head
 ```
 
-**Test with both a server and client PR:**
+**Test with both a server and client PR in bootc E2E tests:**
 
 ```
 /packit test --identifier bootc --env SERVER_REF=refs/pull/42/head --env CLIENT_REF=refs/pull/99/head
