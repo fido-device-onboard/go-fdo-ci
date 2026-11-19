@@ -123,17 +123,21 @@ on pull requests but can be retriggered or customized via PR comments.
 /packit test --identifier rpm --env INSTALLATION_SOURCE=distro
 ```
 
-**Test with a specific server PR in RPM tests:**
+**Test with a specific server PR (built from source) in RPM tests:**
 
 ```
-/packit test --identifier rpm --env SERVER_REF=refs/pull/42/head
+/packit test --identifier rpm --env INSTALLATION_SOURCE=source --env SERVER_REF=refs/pull/42/head
 ```
 
-**Test with both a server and client PR in bootc E2E tests:**
+**Test with both a server and client PR (built from source) in bootc E2E tests:**
 
 ```
-/packit test --identifier bootc --env SERVER_REF=refs/pull/42/head --env CLIENT_REF=refs/pull/99/head
+/packit test --identifier bootc --env INSTALLATION_SOURCE=source --env SERVER_REF=refs/pull/42/head --env CLIENT_REF=refs/pull/99/head
 ```
+
+> **Note:** `SERVER_REF` and `CLIENT_REF` only take effect when
+> `INSTALLATION_SOURCE=source`. Without it, Packit jobs install
+> published COPR RPMs and the ref variables are ignored.
 
 For the full Packit retriggering reference, see
 https://packit.dev/docs/retriggering.
