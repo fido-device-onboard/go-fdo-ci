@@ -197,7 +197,7 @@ keeps the image size down by avoiding the installation of the entire
 build toolchain inside the container.
 
 The host and bootc base image must be the same distribution and
-version (e.g., `fedora-43` host → `fedora-bootc:43` base image).
+version (e.g., `fedora-44` host → `fedora-bootc:44` base image).
 This requirement is already satisfied by the bootc test environment.
 
 ### Copr Chroot Selection
