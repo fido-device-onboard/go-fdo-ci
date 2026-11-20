@@ -23,8 +23,8 @@ services+=("firewalld" "libvirtd")
 source /etc/os-release
 log_info "Detected OS: ${ID} ${VERSION_ID}"
 case "${ID}-${VERSION_ID}" in
-  "fedora-43" | "fedora-44")
-    # We can safely use rawhide OS variant for Fedora >= 43
+  "fedora-44" | "fedora-45" | "fedora-46")
+    # We can safely use rawhide OS variant for Fedora >= 44
     os_variant="fedora-rawhide"
     base_image_url="quay.io/fedora/fedora-bootc:${VERSION_ID}"
     boot_args="uefi"

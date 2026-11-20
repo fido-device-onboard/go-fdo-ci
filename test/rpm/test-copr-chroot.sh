@@ -137,8 +137,9 @@ run_test() {
   log_info "Verify the chroot selected for each distribution"
   verify_chroot_for_system centos 9 "centos-stream-9-$(uname -m)"
   verify_chroot_for_system centos 10 "centos-stream-10-$(uname -m)"
-  verify_chroot_for_system fedora 43 ""
   verify_chroot_for_system fedora 44 ""
+  verify_chroot_for_system fedora 45 ""
+  verify_chroot_for_system fedora 46 ""
   verify_chroot_for_system rhel 10.1 ""
   verify_chroot_override
 
